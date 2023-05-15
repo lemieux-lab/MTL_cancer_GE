@@ -25,7 +25,12 @@ get_fold_data(foldn, ids, cdata) = cdata.data[find_fold_ids(foldn, ids, cdata.ro
 ###### General utilities ###
 ############################
 zpad(n::Int;pad::Int=9) = lpad(string(n),pad,'0')
-
+function labs_appdf(labs) 
+    lbd = Dict([(t,sum(labs .== t )) for t in unique(labs)])
+    append(lbl, lbd)= "$lbl ($(lbd[lbl]))" 
+    labs_appd = [append(lb,lbd) for lb in labs]
+    return labs_appd
+end 
 
 function stringify(p::Dict;spacer = 80)  
     s = join(["$key: $val" for (key, val) in p], ", ")
@@ -44,7 +49,7 @@ function plot_embed(X_tr, labels, assoc_ae_params,fig_outpath)
     tr_acc = round(assoc_ae_params["tr_acc"], digits = 3) * 100
     embed = DataFrame(:emb1=>X_tr[1,:], :emb2=>X_tr[2,:], :cancer_type => labels)
     p = AlgebraOfGraphics.data(embed) * mapping(:emb1,:emb2,color = :cancer_type,marker = :cancer_type)
-    fig = draw(p, axis = (;width = 1224, height = 1024, 
+    fig = draw(p, axis = (;aspect = 1, width = 1024, height =1024, 
     title="$(assoc_ae_params["model_type"]) on $(assoc_ae_params["dataset"]) data\naccuracy by DNN : $tr_acc%"))
     CairoMakie.save(fig_outpath, fig)
 end 

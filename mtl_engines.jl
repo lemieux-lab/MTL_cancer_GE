@@ -82,7 +82,7 @@ function prep_FE(data; device = gpu)
     return (device(factor_1_index), device(factor_2_index)), device(vec(values))
 end
 
-struct assoc_FE
+struct mtl_FE
     fe::FE_model
     fe_data::DataFE
     clf::dnn 
@@ -120,7 +120,7 @@ function AE_model(params::Dict)
     AE_model(net, encoder, decoder, outpl, opt, lossf)
 end 
 
-struct assoc_AE
+struct mtl_AE
     ae::AE_model 
     clf::dnn
 end 
@@ -185,7 +185,7 @@ function build(model_params)
         opt = Flux.ADAM(model_params["lr"])
         lossf = crossentropy_l2
         model = dnn(chain, opt, lossf)
-    elseif model_params["model_type"] == "assoc_FE"
+    elseif model_params["model_type"] == "mtl_FE"
         FE = FE_model(model_params)
         data_FE = DataFE("fe_data", model_params["fe_data"], collect(1:model_params["nsamples"]),collect(1:model_params["ngenes"]) )
         clf_chain = gpu(Flux.Chain(FE.embed_1, 
@@ -195,8 +195,8 @@ function build(model_params)
         clf_opt = Flux.ADAM(model_params["lr"])
         clf_lossf = crossentropy_l2
         clf = dnn(clf_chain, clf_opt, clf_lossf)
-        model = assoc_FE(FE, data_FE , clf)
-    elseif model_params["model_type"] == "assoc_ae"
+        model = mtl_FE(FE, data_FE , clf)
+    elseif model_params["model_type"] == "mtl_ae"
         AE = AE_model(model_params)
         clf_chain = gpu(Flux.Chain(
         AE.encoder...,
@@ -206,7 +206,7 @@ function build(model_params)
         clf_opt = Flux.ADAM(model_params["lr_clf"])
         clf_lossf = crossentropy_l2
         clf = dnn(clf_chain, clf_opt, clf_lossf)
-        model = assoc_AE(AE, clf)
+        model = mtl_AE(AE, clf)
     end 
    
     return model 
@@ -231,8 +231,8 @@ function train!(model::AE_model, fold;nepochs = 500, batchsize = 500, wd = 1e-6)
         # println(my_cor(vec(X_), vec(model.net(X_))))
     end
 end 
-function train!(model::assoc_AE, fold, dump_cb, params)
-    ## Associative Auto-Encoder + Classifier NN model training function 
+function train!(model::mtl_AE, fold, dump_cb, params)
+    ## mtliative Auto-Encoder + Classifier NN model training function 
     ## Vanilla Auto-Encoder training function 
     batchsize = params["mb_size"]
     nepochs= params["nepochs"]
@@ -283,7 +283,7 @@ function train!(model::assoc_AE, fold, dump_cb, params)
     return params["tr_acc"]
 end 
 
-function train!(model::assoc_FE, fold; nepochs = 1000, batchsize=500, wd = 1e-6)
+function train!(model::mtl_FE, fold; nepochs = 1000, batchsize=500, wd = 1e-6)
     fe_x, fe_y = prep_FE(model.fe_data);
     nminibatches = Int(floor(length(fe_y) / batchsize))
     nsamples = length(tcga_prediction.rows)
@@ -356,7 +356,7 @@ function train!(model::logistic_regression, fold; batchsize = 500, nepochs = 100
     return accuracy(train_y, model.model(train_x))
 end 
 ####### Inference functions
-function test(model::assoc_AE, fold)
+function test(model::mtl_AE, fold)
     test_x = gpu(fold["test_x"]');
     test_y = gpu(fold["test_y"]');
     return cpu(test_y), cpu(model.clf.model(test_x)) 
@@ -372,7 +372,7 @@ function test(model::dnn, fold)
     test_y = gpu(fold["test_y"]');
     return cpu(test_y), cpu(model.model(test_x)) 
 end
-function test(model::assoc_FE, fold)
+function test(model::mtl_FE, fold)
     test_x = gpu(fold["test_ids"]);
     test_y = gpu(fold["test_y"]');
     return cpu(test_y), cpu(model.clf.model(test_x)) 
@@ -451,29 +451,29 @@ function bootstrap(acc_function, tlabs, plabs; bootstrapn = 1000)
     return low_ci, med, upp_ci
 end 
 ####### CAllback functions
-function to_cpu(model::assoc_AE)
-    return assoc_AE(cpu(model.ae), cpu(model.clf))
+function to_cpu(model::mtl_AE)
+    return mtl_AE(cpu(model.ae), cpu(model.clf))
 end 
+
 # define dump call back 
-function dump_model_cb(dump_freq, labels)
+function dump_model_cb(dump_freq, labels; export_type = ".png")
     return (model, tr_metrics, params, iter::Int, fold) -> begin 
         # check if end of epoch / start / end 
         if iter % dump_freq == 0 || iter == 0 || iter == params["nepochs"]
             # saves model
             bson("RES/$(params["session_id"])/$(params["modelid"])/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
             # plot learning curve
-            lr_fig_outpath = "RES/$(params["session_id"])/$(params["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))_lr.svg"
+            lr_fig_outpath = "RES/$(params["session_id"])/$(params["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
             plot_learning_curves(tr_metrics, params, lr_fig_outpath)
             # plot embedding
             X_tr = cpu(model.ae.encoder(gpu(fold["train_x"]')))
             infos = labels[fold["train_ids"]]
-            emb_fig_outpath = "RES/$(params["session_id"])/$(params["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))/model_$(zpad(iter)).png"
+            emb_fig_outpath = "RES/$(params["session_id"])/$(params["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))/model_$(zpad(iter)).$export_type"
             plot_embed(X_tr, infos, params, emb_fig_outpath)
  
         end 
     end 
 end 
-
 function dummy_dump_cb(model, tr_metrics, params, iter::Int, fold) end 
 
 ####### cross validation loops 
@@ -515,6 +515,7 @@ function validate!(params, Data, dump_cb)
     params["cv_acc_low_ci"] = low_ci
     params["cv_acc_median"] = med
     params["cv_acc_upp_ci"] = upp_ci
+
     # param dict 
     return ret_dict
 
@@ -553,13 +554,12 @@ function validate(model_params, cancer_data::GDC_data; nfolds = 10)
 end 
 
 ######### Fit transform functions
-function fit_transform!(model::assoc_AE, Data::GDC_data, params::Dict)
+function fit_transform!(model::mtl_AE, fold, dump_cb, params::Dict)
     #### trains a model following params dict on given Data 
     #### returns data transformation using AE
     #### rerurns accuracy metrics  
     X = Data.data
     targets = label_binarizer(Data.targets)
-    train_data = Dict("train_x"=>X, "train_y"=>targets)
-    learning_curves = train!(model, train_data, nepochs = params["nepochs"])
+    learning_curves = train!(model, fold, dump_cb, params)
     return model.clf.model(gpu(X')), learning_curves
 end  
