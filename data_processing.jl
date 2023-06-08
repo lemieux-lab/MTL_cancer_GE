@@ -40,6 +40,14 @@ function GDC_data(inputfile::String; log_transform=false, shuffled = true)
     tpm, cases, gnames, labels = load_GDC_data(inputfile;log_transform=log_transform, shuffled = shuffled)
     return GDC_data(tpm, cases, gnames, labels)
 end
+struct GDC_data_surv 
+    data::Matrix
+    rows::Array 
+    cols::Array
+    subgroups::Array
+    survt::Array
+    surve::Array
+end 
 function load_GDC_data(infile; log_transform = false, shuffled= true)
     inf = h5open(infile, "r")
     tpm_data = inf["data"][:,:]

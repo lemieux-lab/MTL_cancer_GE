@@ -1,4 +1,5 @@
-include("init.jl")
+include("init.jl") # first time connect is slow
+Pkg.instantiate() # should be quick! 
 include("data_processing.jl")
 include("mtl_engines.jl")
 include("utils.jl")
@@ -10,8 +11,41 @@ tcga_prediction = GDC_data("Data/GDC_processed/TCGA_TPM_hv_subset.h5", log_trans
 #tcga_prediction = GDC_data("Data/GDC_processed/TCGA_TPM_lab.h5", log_transform = true, shuffled =true);
 abbrv = tcga_abbrv()
 ##### BRCA (5 subtypes)
-brca_prediction= GDC_data("Data/GDC_processed/TCGA_BRCA_TPM_lab.h5", log_transform = true, shuffled = true);
+brca_prediction = GDC_data("Data/GDC_processed/TCGA_BRCA_TPM_lab.h5", log_transform = true, shuffled = true);
+highv = reverse(sortperm([var(x) for x in 1:size(brca_prediction.data)[2]]))
+highv_25 = highv[1:Int(floor(length(highv)*0.25))]
+brca_pred_subset = GDC_data(brca_prediction.data[:,highv_25], brca_prediction.rows, brca_prediction.cols[highv_25], brca_prediction.targets)
 
+#### TSNE 
+using TSne
+
+function run_TSNE_dump_h5(tpm_data; ndim = 3, red_dim = 50, max_iter = 1000, perplexity = 30.0, prefix = "TCGA")
+    tsne_data = tsne(tpm_data.data, ndim, red_dim, max_iter, perplexity;verbose=true,progress=true)
+    fname = "RES/TSNE/$(prefix)_tsne_$(ndim)d"
+    params = "tsne($(size(tpm_data.data)), ndims=$ndim, reduce_dims (PCA init) =$red_dim,
+    max_iter=$max_iter, perplexity=$perplexity)"
+    f = h5open("$fname.h5", "w")
+    f["tsne"] = tsne_data
+    f["rows"] = tpm_data.rows
+    f["cols"] = collect(1:ndim)
+    f["targets"] = tpm_data.targets
+    f["params"] = params
+    close(f)
+    df = DataFrame(:tsne1=>tsne_data[:,1], :tsne2=>tsne_data[:,2], :subtype=>tpm_data.targets)
+    p= AlgebraOfGraphics.data(df) * mapping(:tsne1, :tsne2, color = :subtype, marker = :subtype) 
+    fig = draw(p, axis = (;width = 1024, height = 1024, title = params, aspect = AxisAspect(1), autolimitaspect = 1))
+    CairoMakie.save("$fname.pdf", fig)
+    return fname
+end
+    
+
+outfname = run_TSNE_dump_h5(brca_pred_subset, ndim = 2, red_dim = 50, max_iter = 1000, perplexity = 25, prefix = "BRCA_0.25_most_var")
+
+using MultivariateStats
+#pca = fit(PCA, brca_prediction.data', maxoutdim=25, method = :cov);
+brca_prediction_pca = predict(pca, brca_prediction.data')';
+size(brca_prediction_pca)
+#CSV.write("Data/GDC_processed/TCGA_BRCA_ids_pam50_subtypes.csv",DataFrame(:sample_id => brca_prediction.rows, :subtype => brca_prediction.targets))
 
 mtl_ae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "tcga_prediction", 
 "model_type" => "mtl_ae", "session_id" => session_id, "nsamples" => length(tcga_prediction.rows),
@@ -29,7 +63,18 @@ brca_mtae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floo
 "nfolds" => 5,  "nepochs" => 10_000, "mb_size" => 50, "lr_ae" => 1e-5, "lr_clf" => 1e-4,  "wd" => 1e-3, "dim_redux" => 2, "enc_nb_hl" => 2, 
 "enc_hl_size" => 25, "dec_nb_hl" => 2, "dec_hl_size" => 25, "clf_nb_hl" => 2, "clf_hl_size"=> 25)
 
-validate!(brca_mtae_params, brca_prediction, dump_cb_dev)
+
+dump_cb_brca = dump_model_cb(50*Int(floor(brca_mtae_params["nsamples"] / brca_mtae_params["mb_size"])), labs_appdf(brca_prediction.targets), export_type = "pdf")
+
+brca_pca_mtae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
+"model_type" => "mtl_ae", "session_id" => session_id, "nsamples" => length(brca_prediction.rows),
+"insize" => size(brca_prediction_pca)[2], "ngenes" => length(brca_prediction.cols), "nclasses"=> length(unique(brca_prediction.targets)), 
+"nfolds" => 5,  "nepochs" => 20_000, "mb_size" => 50, "lr_ae" => 1e-5, "lr_clf" => 1e-4,  "wd" => 1e-3, "dim_redux" => 2, "enc_nb_hl" => 2, 
+"enc_hl_size" => 25, "dec_nb_hl" => 2, "dec_hl_size" => 25, "clf_nb_hl" => 2, "clf_hl_size"=> 25)
+
+
+validate!(brca_mtae_params, brca_prediction, dump_cb_brca)
+validate!(brca_pca_mtae_params, brca_pca_prediction, dump_cb_brca)
 validate!(mtl_ae_params, tcga_prediction, dump_cb_dev)
 
 model = BSON.load("RES/$session_id/FOLD001/model_000020000.bson")["model"]
