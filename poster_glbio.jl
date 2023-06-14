@@ -42,9 +42,10 @@ end
 outfname = run_TSNE_dump_h5(brca_pred_subset, ndim = 2, red_dim = 50, max_iter = 1000, perplexity = 25, prefix = "BRCA_0.25_most_var")
 
 using MultivariateStats
-#pca = fit(PCA, brca_prediction.data', maxoutdim=25, method = :cov);
-brca_prediction_pca = predict(pca, brca_prediction.data')';
+pca = fit(PCA, brca_pred_subset.data', maxoutdim=25, method = :cov);
+brca_prediction_pca = predict(pca, brca_pred_subset.data')';
 size(brca_prediction_pca)
+brca_prediction_pca = GDC_data(brca_prediction_pca, brca_prediction.rows, collect(1:25),brca_prediction.targets)
 #CSV.write("Data/GDC_processed/TCGA_BRCA_ids_pam50_subtypes.csv",DataFrame(:sample_id => brca_prediction.rows, :subtype => brca_prediction.targets))
 
 mtl_ae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "tcga_prediction", 
@@ -68,13 +69,13 @@ dump_cb_brca = dump_model_cb(50*Int(floor(brca_mtae_params["nsamples"] / brca_mt
 
 brca_pca_mtae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "mtl_ae", "session_id" => session_id, "nsamples" => length(brca_prediction.rows),
-"insize" => size(brca_prediction_pca)[2], "ngenes" => length(brca_prediction.cols), "nclasses"=> length(unique(brca_prediction.targets)), 
-"nfolds" => 5,  "nepochs" => 20_000, "mb_size" => 50, "lr_ae" => 1e-5, "lr_clf" => 1e-4,  "wd" => 1e-3, "dim_redux" => 2, "enc_nb_hl" => 2, 
+"insize" => size(brca_prediction_pca.data)[2], "ngenes" => length(brca_prediction_pca.cols), "nclasses"=> length(unique(brca_prediction_pca.targets)), 
+"nfolds" => 5,  "nepochs" => 10, "mb_size" => 50, "lr_ae" => 1e-5, "lr_clf" => 1e-4,  "wd" => 1e-3, "dim_redux" => 2, "enc_nb_hl" => 2, 
 "enc_hl_size" => 25, "dec_nb_hl" => 2, "dec_hl_size" => 25, "clf_nb_hl" => 2, "clf_hl_size"=> 25)
 
 
 validate!(brca_mtae_params, brca_prediction, dump_cb_brca)
-validate!(brca_pca_mtae_params, brca_pca_prediction, dump_cb_brca)
+validate!(brca_pca_mtae_params, brca_prediction_pca, dump_cb_brca)
 validate!(mtl_ae_params, tcga_prediction, dump_cb_dev)
 
 model = BSON.load("RES/$session_id/FOLD001/model_000020000.bson")["model"]

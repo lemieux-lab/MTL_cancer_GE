@@ -44,12 +44,12 @@ end
 ####### Plotting functions    ############
 ##########################################
 
-function plot_embed(X_tr, labels, assoc_ae_params,fig_outpath)
+function plot_embed(X_tr, labels, assoc_ae_params,fig_outpath;acc ="tr_acc")
     # plot final 2d embed from Auto-Encoder
-    tr_acc = round(assoc_ae_params["tr_acc"], digits = 3) * 100
+    tr_acc = round(assoc_ae_params[acc], digits = 3) * 100
     embed = DataFrame(:emb1=>X_tr[1,:], :emb2=>X_tr[2,:], :cancer_type => labels)
-    p = AlgebraOfGraphics.data(embed) * mapping(:emb1,:emb2,color = :cancer_type,marker = :cancer_type)
-    fig = draw(p, axis = (;aspect = 1, width = 1024, height =1024, 
+    p = AlgebraOfGraphics.data(embed) * mapping(:emb1,:emb2,color = :cancer_type,marker = :cancer_type) * visual(markersize =20)
+    fig = draw(p, axis = (;aspect = AxisAspect(1), autolimitaspect = 1, width = 1024, height =1024, 
     title="$(assoc_ae_params["model_type"]) on $(assoc_ae_params["dataset"]) data\naccuracy by DNN : $tr_acc%"))
     CairoMakie.save(fig_outpath, fig)
 end 

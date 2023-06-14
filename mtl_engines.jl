@@ -500,6 +500,12 @@ function validate!(params, Data, dump_cb)
         push!(pred_labs_list, pred_labs)
         println("train: ", train_metrics)
         println("test: ", accuracy(true_labs, pred_labs))
+        params["tst_acc"] = accuracy(true_labs, pred_labs)
+        plot_embed(cpu(model.ae.encoder(gpu(fold["test_x"]'))), 
+            Data.targets[fold["test_ids"]], 
+            params,
+            "RES/$(params["session_id"])/$(params["modelid"])/fold_$(foldn)_tst.pdf",
+            acc = "tst_acc")
         # post run 
         # save model
         # save 2d embed svg
