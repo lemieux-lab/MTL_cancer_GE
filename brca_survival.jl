@@ -58,15 +58,82 @@ survt
 TCGA_all.data[BRCA_gdc_ids[sortperm(BRCA_ids)],:]
 TCGA_BRCA_TPM_surv = GDC_data_surv(TCGA_all.data[BRCA_gdc_ids[sortperm(BRCA_ids)],:], sort(BRCA_ids), TCGA_all.cols, Array{String}(BRCA_CLIN[:,"PAM50 mRNA"]), survt, surve) 
 write_h5(TCGA_BRCA_TPM_surv, "Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5")
-f = h5open("Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5", "r")
-TPM_data = log10.(f["data"][:,:] .+ 1)
-case_ids = f["rows"][:]
-gene_names = f["cols"][:]
-survt = f["survt"][:]
-surve = f["surve"][:]
-subgroups = f["subgroups"][:]
-close(f)
-tmp = DataFrame(:case_id => case_ids, :survt => survt, :surve=>surve)
+function  GDC_data_surv(inf::String;log_transf = false)
+    f = h5open(inf, "r")
+    TPM_data = f["data"][:,:]
+    if log_transf
+        TPM_data = log10.(TPM_data .+ 1)
+    end 
+
+    case_ids = f["rows"][:]
+    gene_names = f["cols"][:]
+    survt = f["survt"][:]
+    surve = f["surve"][:]
+    subgroups = f["subgroups"][:]
+    close(f)
+    return GDC_data_surv(TPM_data, case_ids, gene_names, subgroups, survt, surve)
+end
+brca_prediction = GDC_data_surv("Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5";log_transf = true)
+
+function surv_curve(survt, surve)
+    
+    ratio_table = 
+    return ratio_table
+end 
+brca_prediction.subgroups
+group = "HER2-enriched" 
+cohort = findall(brca_prediction.subgroups .== group)
+survt = brca_prediction.survt
+surve = brca_prediction.surve
+surv_curv = surv_curve(survt[cohort], surve[cohort])
+function surv_curve(survt, surve; color="black")
+    curve = zeros((length(survt), 3))
+    ranking = sortperm(survt)
+    survt = survt[ranking]
+    surve = surve[ranking] 
+    riskset = reverse(collect(1:length(survt)) .- 1) ./ length(survt)
+    for i in 1:size(survt)[1]
+        curve[i,:] .= [survt[i], surve[i], riskset[i]]
+    end 
+    surv_curv = DataFrame(:t=>curve[:,1],:e=> curve[:,2], :R=>curve[:,3])
+    surv_curv_1_1 = surv_curv[findall(surv_curv[:,"e"] .== 1),:]
+    surv_curv_1_2 = surv_curv_1_1[2:size(surv_curv_1_1)[1],:]
+    surv_curv_1_2.t = surv_curv_1_1[1:size(surv_curv_1_1)[1]-1,"t"]
+    surv_curv_1 = append!(surv_curv_1_1, surv_curv_1_2 )
+    surv_curv_1 = surv_curv_1[sortperm(surv_curv_1.t),:]
+    # remove last data (undefined)
+    # surv_curv_1 = surv_curv_1[1:end-1,:]
+    # add (t = 0, S = 1), (t = 0, S = 1 - R(0,1))
+    surv_curv_1 = append!(DataFrame(Dict(:t=>[0.0,surv_curv_1_1.t[1]],:e=>[1.0,1.0],:R=>[1.0,1.0])), surv_curv_1)
+    surv_curv_2 = surv_curv[findall(surv_curv[:,"e"] .== 0),:]
+    for (i,t) in enumerate(surv_curv_1.t)
+        surv_curv_2[findall(surv_curv_2.t .>= t),"R"] .= surv_curv_1.R[i]
+    end 
+    survt = AlgebraOfGraphics.data(surv_curv_1) * mapping(:t,:R) * visual(Lines, color = color)
+    censored = AlgebraOfGraphics.data(surv_curv_2) * mapping(:t,:R) * visual(marker = [:x for i in 1:size(surv_curv_2)[1]])
+
+    return survt, censored, surv_curve 
+end         
+fig
+function extract_surv_curves(survt, surve, subgroups)
+    curves = []
+    colors = ["red","blue","green","purple","grey","black", "yellow","orange"]
+    for (i,group) in enumerate(unique(subgroups))
+        cohort = findall(subgroups .== group)
+        p, x, surv_curv = surv_curve(survt[cohort],surve[cohort];color=colors[i])
+        fig = draw(p + x ,axis = (;xlabel = "Elpased Time (days)", ylabel = "Survival (% alive)", title =  group, limits = (0,7200,0,1)))
+        push!(curves, fig)
+    end
+    return curves
+end 
+
+max(brca_prediction.survt...)
+surv_curves = extract_surv_curves(brca_prediction.survt, brca_prediction.surve, brca_prediction.subgroups)
+for i in 1:5
+    CairoMakie.save("RES/SURV/tmp$i.png", surv_curves[i])
+end
+
+
 BRCA_CLIN = BRCA_CLIN[:,1:14]
 BRCA_CLIN = innerjoin(BRCA_CLIN, tmp, on = :case_id)
 brca_prediction = GDC_data_surv(TPM_data, case_ids, gene_names, subgroups, survt, surve) 
