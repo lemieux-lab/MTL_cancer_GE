@@ -75,62 +75,63 @@ function  GDC_data_surv(inf::String;log_transf = false)
 end
 brca_prediction = GDC_data_surv("Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5";log_transf = true)
 
-function surv_curve(survt, surve)
-    
-    ratio_table = 
-    return ratio_table
-end 
-brca_prediction.subgroups
-group = "HER2-enriched" 
+unique(brca_prediction.subgroups)
+group = "Luminal A"
 cohort = findall(brca_prediction.subgroups .== group)
-survt = brca_prediction.survt
-surve = brca_prediction.surve
-surv_curv = surv_curve(survt[cohort], surve[cohort])
-function surv_curve(survt, surve; color="black")
-    curve = zeros((length(survt), 3))
-    ranking = sortperm(survt)
-    survt = survt[ranking]
-    surve = surve[ranking] 
-    riskset = reverse(collect(1:length(survt)) .- 1) ./ length(survt)
-    for i in 1:size(survt)[1]
-        curve[i,:] .= [survt[i], surve[i], riskset[i]]
-    end 
-    surv_curv = DataFrame(:t=>curve[:,1],:e=> curve[:,2], :R=>curve[:,3])
-    surv_curv_1_1 = surv_curv[findall(surv_curv[:,"e"] .== 1),:]
-    surv_curv_1_2 = surv_curv_1_1[2:size(surv_curv_1_1)[1],:]
-    surv_curv_1_2.t = surv_curv_1_1[1:size(surv_curv_1_1)[1]-1,"t"]
-    surv_curv_1 = append!(surv_curv_1_1, surv_curv_1_2 )
-    surv_curv_1 = surv_curv_1[sortperm(surv_curv_1.t),:]
-    # remove last data (undefined)
-    # surv_curv_1 = surv_curv_1[1:end-1,:]
-    # add (t = 0, S = 1), (t = 0, S = 1 - R(0,1))
-    surv_curv_1 = append!(DataFrame(Dict(:t=>[0.0,surv_curv_1_1.t[1]],:e=>[1.0,1.0],:R=>[1.0,1.0])), surv_curv_1)
-    surv_curv_2 = surv_curv[findall(surv_curv[:,"e"] .== 0),:]
-    for (i,t) in enumerate(surv_curv_1.t)
-        surv_curv_2[findall(surv_curv_2.t .>= t),"R"] .= surv_curv_1.R[i]
-    end 
-    survt = AlgebraOfGraphics.data(surv_curv_1) * mapping(:t,:R) * visual(Lines, color = color)
-    censored = AlgebraOfGraphics.data(surv_curv_2) * mapping(:t,:R) * visual(marker = [:x for i in 1:size(surv_curv_2)[1]])
+survt = brca_prediction.survt[cohort]
+surve = brca_prediction.surve[cohort]
 
-    return survt, censored, surv_curve 
-end         
-fig
+function surv_curve(survt, surve; color="black")
+    
+    ordered_failure_times = vcat([0], sort(survt[findall(surve .== 1)]), [end_of_study])
+    qfs = []
+    nfs = [length(survt)]
+    Stf_hat = [1.]
+    for (f, tf) in enumerate(ordered_failure_times[1:end - 1])
+        push!(qfs, sum(surve[findall(survt .> tf .&& survt .< ordered_failure_times[f + 1])] .== 0) )
+        if f > 1
+            push!(nfs, nfs[f - 1] - qfs[f - 1] - 1) # Risk set nb indiv. at risk before time tf
+            push!(Stf_hat, Stf_hat[f - 1] * (nfs[f] - 1) / nfs[f])
+        end 
+        println([f - 1, tf, qfs[f], nfs[f], Stf_hat[f]])
+    end
+    censored_tf = survt[surve .== 0]
+    censored_Shat = []
+    for tf in censored_tf
+        Shat_position = Stf_hat[argmax(ordered_failure_times[ordered_failure_times .<= tf])]
+        push!(censored_Shat, Shat_position)
+    end
+    
+    surv_curv_1_1 = DataFrame(:tf=>ordered_failure_times[1:end-1], :Stf_hat=>Stf_hat)
+    surv_curv_1_2 = DataFrame(:tf=>ordered_failure_times[2:end], :Stf_hat=>Stf_hat)
+    surv_curv_1 = append!(surv_curv_1_2, surv_curv_1_1)
+    surv_curv_1 = surv_curv_1[sortperm(surv_curv_1.tf),:]
+    surv_curv_2 = DataFrame(:tf => censored_tf, :Stf_hat=>censored_Shat)
+    survt = AlgebraOfGraphics.data(surv_curv_1) * mapping(:tf, :Stf_hat) * visual(Lines, color = color, linewidth = 3)
+    censored = AlgebraOfGraphics.data(surv_curv_2) * mapping(:tf, :Stf_hat) * visual(marker = [:vline for i in 1:size(surv_curv_2)[1]])
+    return survt, censored
+end 
+
 function extract_surv_curves(survt, surve, subgroups)
+    end_of_study = max(survt...) + 1
     curves = []
     colors = ["red","blue","green","purple","grey","black", "yellow","orange"]
     for (i,group) in enumerate(unique(subgroups))
         cohort = findall(subgroups .== group)
-        p, x, surv_curv = surv_curve(survt[cohort],surve[cohort];color=colors[i])
-        fig = draw(p + x ,axis = (;xlabel = "Elpased Time (days)", ylabel = "Survival (% alive)", title =  group, limits = (0,7200,0,1)))
+        p, x  = surv_curve(survt[cohort],surve[cohort];color=colors[i])
+        fig = draw(p + x ,axis = (;xlabel = "Elpased Time (days)", ylabel = "Survival (% alive)", title =  group, 
+            limits = (0,end_of_study,0,1), yminorticksvisible = true, yminorgridvisible = true, yminorticks = IntervalsBetween(2),
+            yticks = collect(0:10:100) ./ 100,
+            xticks = collect(0:1000:end_of_study)))
+        
         push!(curves, fig)
     end
     return curves
 end 
-
-max(brca_prediction.survt...)
 surv_curves = extract_surv_curves(brca_prediction.survt, brca_prediction.surve, brca_prediction.subgroups)
-for i in 1:5
-    CairoMakie.save("RES/SURV/tmp$i.png", surv_curves[i])
+
+for (i, curv) in enumerate(surv_curves)
+    CairoMakie.save("RES/SURV/surv_curve_$(unique(brca_prediction.subgroups)[i]).pdf", curv)
 end
 
 
