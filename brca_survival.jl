@@ -5,7 +5,7 @@ include("data_processing.jl")
 include("mtl_engines.jl")
 include("utils.jl")
 
-brca_prediction = GDC_data("Data/GDC_processed/TCGA_BRCA_TPM_lab.h5", log_transform = true, shuffled = true);
+#brca_prediction = GDC_data("Data/GDC_processed/TCGA_BRCA_TPM_lab.h5", log_transform = true, shuffled = true);
 
 clin_data = CSV.read("Data/GDC_processed/TCGA_BRCA_clinicial_raw.csv", DataFrame, header = 2)
 names(clin_data)
@@ -38,6 +38,9 @@ BRCA_CLIN = BRCA_CLIN[findall(BRCA_CLIN[:,"Days to date of Death"] .!= "NA" .|| 
 CSV.write("Data/GDC_processed/TCGA_BRCA_clinical_survival.csv", BRCA_CLIN)
 BRCA_CLIN.case_id
 BRCA_CLIN = CSV.read("Data/GDC_processed/TCGA_BRCA_clinical_survival.csv", DataFrame)
+CSV.write("RES/SURV/TCGA_BRCA_clinical_survival.csv", BRCA_CLIN)
+
+max(BRCA_CLIN.survt...)
 #TCGA_all = GDC_data("Data/GDC_processed/TCGA_TPM_lab.h5")
 TCGA_all = GDC_data("Data/GDC_processed/GDC_STAR_TPM.h5")
 
@@ -88,17 +91,18 @@ function surv_curve(survt, surve; color="black")
     nfs = [length(survt)]
     Stf_hat = [1.]
     for (f, tf) in enumerate(ordered_failure_times[1:end - 1])
-        push!(qfs, sum(surve[findall(survt .> tf .&& survt .< ordered_failure_times[f + 1])] .== 0) )
+        push!(qfs, sum(surve[findall(survt .>= tf .&& survt .< ordered_failure_times[f + 1])] .== 0) )
         if f > 1
-            push!(nfs, nfs[f - 1] - qfs[f - 1] - 1) # Risk set nb indiv. at risk before time tf
-            push!(Stf_hat, Stf_hat[f - 1] * (nfs[f] - 1) / nfs[f])
+            de = Int(f > 2)
+            push!(nfs, nfs[f - 1] - qfs[f - 1] - de) # Risk set nb indiv. at risk before time tf
+            push!(Stf_hat, Stf_hat[f - 1] * (nfs[f] - 1) / nfs[f]) # compute Stf hat (estimator of surv. proba)
         end 
         println([f - 1, tf, qfs[f], nfs[f], Stf_hat[f]])
     end
     censored_tf = survt[surve .== 0]
     censored_Shat = []
     for tf in censored_tf
-        Shat_position = Stf_hat[argmax(ordered_failure_times[ordered_failure_times .<= tf])]
+        Shat_position = Stf_hat[min(argmax(ordered_failure_times[ordered_failure_times .<= tf]),length(Stf_hat))]
         push!(censored_Shat, Shat_position)
     end
     
@@ -109,7 +113,8 @@ function surv_curve(survt, surve; color="black")
     surv_curv_2 = DataFrame(:tf => censored_tf, :Stf_hat=>censored_Shat)
     survt = AlgebraOfGraphics.data(surv_curv_1) * mapping(:tf, :Stf_hat) * visual(Lines, color = color, linewidth = 3)
     censored = AlgebraOfGraphics.data(surv_curv_2) * mapping(:tf, :Stf_hat) * visual(marker = [:vline for i in 1:size(surv_curv_2)[1]])
-    return survt, censored
+    sc3 = DataFrame(:i => collect(1:length(Stf_hat)), :tf => ordered_failure_times[1:end-1], :nf=>nfs,:qf=>qfs, :Stf_hat=>Stf_hat)
+    return survt, censored, surv_curv_1, surv_curv_2, sc3
 end 
 
 function extract_surv_curves(survt, surve, subgroups)
@@ -118,8 +123,8 @@ function extract_surv_curves(survt, surve, subgroups)
     colors = ["red","blue","green","purple","grey","black", "yellow","orange"]
     for (i,group) in enumerate(unique(subgroups))
         cohort = findall(subgroups .== group)
-        p, x  = surv_curve(survt[cohort],surve[cohort];color=colors[i])
-        fig = draw(p + x ,axis = (;xlabel = "Elpased Time (days)", ylabel = "Survival (% alive)", title =  group, 
+        p, x, sc1,sc2  = surv_curve(survt[cohort],surve[cohort];color=colors[i])
+        fig = draw(p + x ,axis = (;xlabel = "Elpased Time (days)", ylabel = "Survival (fraction alive)", title =  group, 
             limits = (0,end_of_study,0,1), yminorticksvisible = true, yminorgridvisible = true, yminorticks = IntervalsBetween(2),
             yticks = collect(0:10:100) ./ 100,
             xticks = collect(0:1000:end_of_study)))
@@ -129,12 +134,22 @@ function extract_surv_curves(survt, surve, subgroups)
     return curves
 end 
 surv_curves = extract_surv_curves(brca_prediction.survt, brca_prediction.surve, brca_prediction.subgroups)
-
+max(brca_prediction.survt...)
 for (i, curv) in enumerate(surv_curves)
     CairoMakie.save("RES/SURV/surv_curve_$(unique(brca_prediction.subgroups)[i]).pdf", curv)
 end
+brca_prediction.subgroups
+cohort = findall(brca_prediction.subgroups .== "Luminal B")
+p, x, sc1, sc2, sc3 = surv_curve(brca_prediction.survt[cohort], brca_prediction.surve[cohort]; color = "black")
+sc3
+survt, surve = brca_prediction.survt, brca_prediction.surve
 
+lumA = lumA[sortperm(lumA.survt),:]
+length(brca_prediction.survt)
 
+sum(BRCA_CLIN.survt .== brca_prediction.survt)
+sum(BRCA_CLIN[:,"PAM50 mRNA"] .== brca_prediction.subgroups)
+names(BRCA_CLIN)
 BRCA_CLIN = BRCA_CLIN[:,1:14]
 BRCA_CLIN = innerjoin(BRCA_CLIN, tmp, on = :case_id)
 brca_prediction = GDC_data_surv(TPM_data, case_ids, gene_names, subgroups, survt, surve) 
@@ -148,7 +163,7 @@ pca = fit(PCA, brca_pred_subset.data', maxoutdim=25, method = :cov);
 brca_prediction_pca = predict(pca, brca_pred_subset.data')';
 brca_pca_25_df = DataFrame(Dict([("pc_$i",brca_prediction_pca[:,i]) for i in 1:size(brca_prediction_pca)[2]]))
 brca_pca_25_df[:,"case_id"] .= case_ids 
-CSV.write("RES/SURV/TCGA_brca_pca_25_case_ids.csv", brca_pca_25_df)
-CSV.write("RES/SURV/TCGA_brca_clinical_survival.csv", BRCA_CLIN)
+CSV.write("RES/SURV/TCGA_BRCA_pca_25_case_ids.csv", brca_pca_25_df)
+CSV.write("RES/SURV/TCGA_BRCA_clinical_survival.csv", BRCA_CLIN)
 # CSV tcga brca surv + clin data 
 

@@ -72,6 +72,18 @@ function load_GDC_data(infile; log_transform = false, shuffled= true)
     return tpm_data[ids,:], case_ids[ids], gene_names, labels[ids]
 end   
 
+function write_h5(dat::GDC_data_surv, outfile)
+    # HDF5
+    # writing to hdf5 
+    f = h5open(outfile, "w")
+    f["data"] = dat.data
+    f["rows"] = dat.rows
+    f["cols"] = dat.cols
+    f["subgroups"] = dat.subgroups
+    f["survt"] = dat.survt
+    f["surve"] = dat.surve    
+    close(f)
+end 
 
 function write_h5(dat::GDC_data, labels, outfile)
     # HDF5
