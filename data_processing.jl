@@ -36,18 +36,7 @@ struct GDC_data
     cols::Array
     targets::Array
 end 
-function GDC_data(inputfile::String; log_transform=false, shuffled = true)
-    tpm, cases, gnames, labels = load_GDC_data(inputfile;log_transform=log_transform, shuffled = shuffled)
-    return GDC_data(tpm, cases, gnames, labels)
-end
-struct GDC_data_surv 
-    data::Matrix
-    rows::Array 
-    cols::Array
-    subgroups::Array
-    survt::Array
-    surve::Array
-end 
+
 function load_GDC_data(infile; log_transform = false, shuffled= true)
     inf = h5open(infile, "r")
     tpm_data = inf["data"][:,:]
@@ -71,6 +60,34 @@ function load_GDC_data(infile; log_transform = false, shuffled= true)
     end 
     return tpm_data[ids,:], case_ids[ids], gene_names, labels[ids]
 end   
+
+function GDC_data(inputfile::String; log_transform=false, shuffled = true)
+    tpm, cases, gnames, labels = load_GDC_data(inputfile;log_transform=log_transform, shuffled = shuffled)
+    return GDC_data(tpm, cases, gnames, labels)
+end
+struct GDC_data_surv 
+    data::Matrix
+    rows::Array 
+    cols::Array
+    subgroups::Array
+    survt::Array
+    surve::Array
+end 
+function  GDC_data_surv(inf::String;log_transf = false)
+    f = h5open(inf, "r")
+    TPM_data = f["data"][:,:]
+    if log_transf
+        TPM_data = log10.(TPM_data .+ 1)
+    end 
+
+    case_ids = f["rows"][:]
+    gene_names = f["cols"][:]
+    survt = f["survt"][:]
+    surve = f["surve"][:]
+    subgroups = f["subgroups"][:]
+    close(f)
+    return GDC_data_surv(TPM_data, case_ids, gene_names, subgroups, survt, surve)
+end
 
 function write_h5(dat::GDC_data_surv, outfile)
     # HDF5
