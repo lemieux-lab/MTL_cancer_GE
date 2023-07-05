@@ -61,6 +61,26 @@ function extract_surv_curves(survt, surve, subgroups)
     return curves
 end 
 
+
+function plot_surv_curves_combined(survt, surve, subgroups)
+    end_of_study = max(survt...)
+    curves = []
+    colors = ["red","blue","green","purple","grey","black", "yellow","orange"]
+    fig = Figure()
+    Axis(fig[1,1])
+    for (i,group) in enumerate(unique(subgroups))
+        cohort = findall(subgroups .== group)
+        # plot lines, add label
+        # plot censored
+        p, x, sc1, sc2 = surv_curve(survt[cohort], surve[cohort]; color = colors[i])
+        main_ax[1] = lines() 
+        # = surv_curve_makie(survt[cohort],surve[cohort];color=colors[i])
+        # Stf_hat_labels = [round(Float32(sc1[findall(sc1.tf .>= i)[1],"Stf_hat"][1]);digits=3) for i in 0:1000:max(sc1.tf...)]
+    end
+    return fig
+end 
+
+
 ### Metrics
 ### Cox Proportional Hazards
 ### Deep Neural Network CPH

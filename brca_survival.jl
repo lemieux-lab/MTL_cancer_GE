@@ -4,7 +4,7 @@ Pkg.instantiate() # should be quick!
 include("data_processing.jl")
 include("mtl_engines.jl")
 include("utils.jl")
-
+using Distributions
 #brca_prediction = GDC_data("Data/GDC_processed/TCGA_BRCA_TPM_lab.h5", log_transform = true, shuffled = true);
 
 clin_data = CSV.read("Data/GDC_processed/TCGA_BRCA_clinicial_raw.csv", DataFrame, header = 2)
@@ -73,6 +73,118 @@ max(brca_prediction.survt...)
 
 ##### DEV
 include("SurvivalDev.jl")
+subgroups = brca_prediction.subgroups
+end_of_study = 365 * 5 # 5 years 
+survt = brca_prediction.survt
+surve = brca_prediction.surve
+surve[survt .>= end_of_study] .= 0 
+survt[survt .>= end_of_study] .= end_of_study 
+
+get_Stf_hat_surv_rates(ticks, sc1)  = [round(Float32(sc1[findall(sc1.tf .>= i),"Stf_hat"][1]);digits=3) for i in ticks]
+ticks = collect(0:250:end_of_study)
+ylow = 0.5
+
+colors = ["red","blue","green","purple", "magenta","orange","yellow","grey", "black"]
+groups = unique(subgroups)
+for group_of_interest in 1:length(groups)
+fig = Figure(resolution =  (1000,1000));
+grid = fig[1,1] = GridLayout()
+axes = [grid[row,col] for row in 1:3 for col in 1:2]
+for i in 1:size(groups)[1]
+    comp_groups = [groups[group_of_interest], groups[i]]
+    comp_cohort = findall(brca_prediction.subgroups .== comp_groups[1] .|| brca_prediction.subgroups .== comp_groups[2])
+    comp_survt= brca_prediction.survt[comp_cohort]
+    comp_surve= brca_prediction.surve[comp_cohort]
+    comp_subgroups = brca_prediction.subgroups[comp_cohort]
+    lrt_pval = round(log_rank_test(comp_survt, comp_surve, comp_subgroups, comp_groups); digits = 5)
+
+    group = groups[group_of_interest]
+    cohort = findall(subgroups .== group)
+    # first subgroup
+    p, x, sc1_ctrl, sc2_ctrl = surv_curve(survt[cohort], surve[cohort]; color = colors[i])
+    p, x, sc1, sc2 = surv_curve(survt[findall(subgroups .== groups[i])], surve[findall(subgroups .== groups[i])]; color = colors[i])
+    sc1_ctrl = sc1_ctrl[sortperm(sc1_ctrl.tf),:]
+    # plot lines
+    Stf_hat_labels = ["$i\n$(label)" for (i,label) in zip(ticks, get_Stf_hat_surv_rates(ticks, sc1_ctrl))]    
+    Stf_hat_labels = ["$tick\n$(label)" for (tick,label) in zip(Stf_hat_labels, get_Stf_hat_surv_rates(ticks, sc1))]       
+    ax = Axis(axes[i], limits = (0,end_of_study, ylow, 1.05), 
+        yminorticksvisible = true, yminorgridvisible = true, yminorticks = IntervalsBetween(2),
+        yticks = collect(0:10:100) ./ 100,
+        xticks = (ticks, Stf_hat_labels),
+        xlabel = "Elapsed time (days)",
+        ylabel = "Survival (fraction still alive)",
+        title = "Survival curves $group (n=$(length(cohort)),c=$(sum(surve[cohort].==0))) \nvs $(groups[i]) (n=$(length(findall(subgroups .== groups[i]))),c=$(sum(surve[findall(subgroups .== groups[i])].==0)))\nLog-Rank Test pval: $lrt_pval")
+    
+    lines!(ax, sc1_ctrl[sc1_ctrl.e .== 1,:tf], sc1_ctrl[sc1_ctrl.e .== 1, :Stf_hat], color = "grey", label = groups[group_of_interest]) 
+    # plot censored
+    scatter!(ax, sc1_ctrl[sc1_ctrl.e .== 0,:tf], sc1_ctrl[sc1_ctrl.e .== 0, :Stf_hat], marker = [:vline for i in 1:sum(sc1_ctrl.e .== 0)], color = "black")
+
+    if i != group_of_interest
+    # second subgroup
+    sc1 = sc1[sortperm(sc1.tf),:] 
+    # plot lines
+    lines!(ax, sc1[sc1.e .== 1,:tf], sc1[sc1.e .== 1, :Stf_hat], color = colors[i], label = groups[i]) 
+    # plot censored
+    scatter!(ax, sc1[sc1.e .== 0,:tf], sc1[sc1.e .== 0, :Stf_hat], marker = [:vline for i in 1:sum(sc1.e .== 0)], color = "black")
+    axislegend(ax, position = :rb)
+
+end
+end
+CairoMakie.save("RES/SURV/surv_curves_$(groups[group_of_interest])_1v1.pdf", fig)
+end
+groups = ["Luminal B", "Luminal A"]
+cohort = findall(brca_prediction.subgroups .== groups[1] .|| brca_prediction.subgroups .== groups[2])
+survt= brca_prediction.survt[cohort]
+surve= brca_prediction.surve[cohort]
+subgroups = brca_prediction.subgroups[cohort]
+log_rank_test(survt, surve, subgroups, groups)
+
+function log_rank_test(survt, surve, subgroups, groups)
+# LOG RANK test 
+end_of_study = 365 * 5 # 5 years 
+surve[survt .>= end_of_study] .= 0;
+survt[survt .>= end_of_study] .= end_of_study; 
+ordered_failure_times = sort(survt[findall(surve .== 1)])
+end_of_study = ordered_failure_times[end]
+ordered_failure_times = vcat([0],ordered_failure_times, [end_of_study])
+m1 = findall(subgroups .== groups[1])
+m2 = findall(subgroups .== groups[2])
+qfs1 = [] # nb of censored
+nfs1 = [length(survt[m1])] # risk set
+qfs2 = [] # nb of censored
+nfs2 = [length(survt[m2])] # risk set
+m1fs = []
+m2fs = []
+O_E = []
+for (f, tf) in enumerate(ordered_failure_times[1:end - 1])
+# push nb of censored during interval
+push!(qfs1, sum(surve[m1][findall(survt[m1] .>= tf .&& survt[m1] .< ordered_failure_times[f + 1])] .== 0) )
+push!(qfs2, sum(surve[m2][findall(survt[m2] .>= tf .&& survt[m2] .< ordered_failure_times[f + 1])] .== 0) )
+if f > 1
+    m1f = Int(subgroups[findall(survt .== tf)[1]] == groups[1])
+    m2f = Int(subgroups[findall(survt .== tf)[1]] == groups[2])
+    
+    push!(nfs1, nfs1[f - 1] - qfs1[f - 1] - m1f) # Risk set nb indiv. at risk before time tf
+    push!(nfs2, nfs2[f - 1] - qfs2[f - 1] - m2f) # Risk set nb indiv. at risk before time tf
+    push!(m1fs, m1f)
+    push!(m2fs, m2f)
+    e1f = nfs1[f] / (nfs1[f] + nfs2[f])
+
+    push!(O_E, Int(subgroups[findall(survt .== tf)[1]] == groups[1]) - e1f)
+end
+
+end 
+table = DataFrame(:tf => ordered_failure_times[2:end-1], :m1f =>m1fs, :m2f =>m2fs, :nfs1 => nfs1[2:end], :nfs2 => nfs2[2:end], :O_E => O_E)
+V = sum(table.nfs1 .* table.nfs2 ./ (table.nfs1 .+ table.nfs2).^2)
+X = sum(O_E) ^ 2 / V
+
+logrank_pval = 1 - cdf(Chisq(1), X)
+return logrank_pval
+end 
+
+
+
+#end
 surv_curves = extract_surv_curves(brca_prediction.survt, brca_prediction.surve, brca_prediction.subgroups);
 
 for (i, curv) in enumerate(surv_curves)
