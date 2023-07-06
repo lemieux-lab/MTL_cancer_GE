@@ -18,6 +18,7 @@ using JuBox
 using CUDA
 using SHA
 using BSON 
+using Distributions
 
 function set_dirs()
     session_id = "$(now())"

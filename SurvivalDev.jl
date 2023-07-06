@@ -82,5 +82,48 @@ end
 
 
 ### Metrics
+
+function log_rank_test(survt, surve, subgroups, groups; end_of_study = 365 * 5)
+    # LOG RANK test
+    surve[survt .>= end_of_study] .= 0;
+    survt[survt .>= end_of_study] .= end_of_study; 
+    ordered_failure_times = sort(survt[findall(surve .== 1)])
+    end_of_study = ordered_failure_times[end]
+    ordered_failure_times = vcat([0],ordered_failure_times, [end_of_study])
+    m1 = findall(subgroups .== groups[1])
+    m2 = findall(subgroups .== groups[2])
+    qfs1 = [] # nb of censored
+    nfs1 = [length(survt[m1])] # risk set
+    qfs2 = [] # nb of censored
+    nfs2 = [length(survt[m2])] # risk set
+    m1fs = []
+    m2fs = []
+    O_E = []
+    for (f, tf) in enumerate(ordered_failure_times[1:end - 1])
+    # push nb of censored during interval
+    push!(qfs1, sum(surve[m1][findall(survt[m1] .>= tf .&& survt[m1] .< ordered_failure_times[f + 1])] .== 0) )
+    push!(qfs2, sum(surve[m2][findall(survt[m2] .>= tf .&& survt[m2] .< ordered_failure_times[f + 1])] .== 0) )
+    if f > 1
+        m1f = Int(subgroups[findall(survt .== tf)[1]] == groups[1])
+        m2f = Int(subgroups[findall(survt .== tf)[1]] == groups[2])
+        
+        push!(nfs1, nfs1[f - 1] - qfs1[f - 1] - m1f) # Risk set nb indiv. at risk before time tf
+        push!(nfs2, nfs2[f - 1] - qfs2[f - 1] - m2f) # Risk set nb indiv. at risk before time tf
+        push!(m1fs, m1f)
+        push!(m2fs, m2f)
+        e1f = nfs1[f] / (nfs1[f] + nfs2[f])
+    
+        push!(O_E, Int(subgroups[findall(survt .== tf)[1]] == groups[1]) - e1f)
+    end
+    
+    end 
+    table = DataFrame(:tf => ordered_failure_times[2:end-1], :m1f =>m1fs, :m2f =>m2fs, :nfs1 => nfs1[2:end], :nfs2 => nfs2[2:end], :O_E => O_E)
+    V = sum(table.nfs1 .* table.nfs2 ./ (table.nfs1 .+ table.nfs2).^2)
+    X = sum(O_E) ^ 2 / V
+    
+    logrank_pval = 1 - cdf(Chisq(1), X)
+    return logrank_pval
+end 
+
 ### Cox Proportional Hazards
 ### Deep Neural Network CPH
