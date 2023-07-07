@@ -73,123 +73,6 @@ surve = brca_prediction.surve
 surve[survt .>= end_of_study] .= 0 
 survt[survt .>= end_of_study] .= end_of_study 
 
-ticks = collect(0:250:end_of_study)
-ylow = 0.5
-
-groups = unique(subgroups)
-
-include("SurvivalDev.jl")
-function plot_brca_subgroups(brca_data, groups, outpath; end_of_study = 365 * 5, conf_interval = true) 
-    figs = []
-    colors = ["red","blue","green","purple", "magenta","orange","yellow","grey", "black"]
-    for group_of_interest in 1:size(groups)[1]
-        fig = Figure(resolution =  (1000,1000));
-        grid = fig[1,1] = GridLayout()
-        axes = [grid[row,col] for row in 1:3 for col in 1:2]
-
-        for i in 1:size(groups)[1]
-            comp_groups = [groups[group_of_interest], groups[i]]
-            comp_cohort = findall(brca_data.subgroups .== comp_groups[1] .|| brca_data.subgroups .== comp_groups[2])
-            comp_survt= brca_data.survt[comp_cohort]
-            comp_surve= brca_data.surve[comp_cohort]
-            comp_subgroups = brca_data.subgroups[comp_cohort]
-            lrt_pval = round(log_rank_test(comp_survt, comp_surve, comp_subgroups, comp_groups; end_of_study = end_of_study); digits = 5)
-
-            group = groups[group_of_interest]
-            cohort = findall(brca_data.subgroups .== group)
-            # first subgroup
-            p, x, sc1_ctrl, sc2_ctrl = surv_curve(survt[cohort], surve[cohort]; color = colors[i])
-            p, x, sc1, sc2 = surv_curve(survt[findall(brca_data.subgroups .== groups[i])], surve[findall(brca_data.subgroups .== groups[i])]; color = colors[i])
-            sc1_ctrl = sc1_ctrl[sortperm(sc1_ctrl.tf),:]
-            
-            Stf_hat_labels = ["$i\n$(label)" for (i,label) in zip(ticks, get_Stf_hat_surv_rates(ticks, sc1_ctrl))]    
-            Stf_hat_labels = ["$tick\n$(label)" for (tick,label) in zip(Stf_hat_labels, get_Stf_hat_surv_rates(ticks, sc1))]       
-            ax = Axis(axes[i], limits = (0,end_of_study, ylow, 1.05), 
-                yminorticksvisible = true, yminorgridvisible = true, yminorticks = IntervalsBetween(2),
-                yticks = collect(0:10:100) ./ 100,
-                xticks = (ticks, Stf_hat_labels),
-                xlabel = "Elapsed time (days)",
-                ylabel = "Survival (fraction still alive)",
-                titlesize = 11, 
-                xticklabelsize =11, 
-                yticklabelsize =11, 
-                ylabelsize = 11, 
-                xlabelsize = 11,
-                title = "$group (n=$(length(cohort)),c=$(sum(surve[cohort].==0))) vs $(groups[i]) (n=$(length(findall(brca_data.subgroups .== groups[i]))),c=$(sum(surve[findall(brca_data.subgroups .== groups[i])].==0)))\nLog-Rank Test pval: $lrt_pval")
-            # plot lines
-            lines!(ax, sc1_ctrl[sc1_ctrl.e .== 1,:tf], sc1_ctrl[sc1_ctrl.e .== 1, :Stf_hat], color = "grey", label = groups[group_of_interest]) 
-            # plot censored
-            scatter!(ax, sc1_ctrl[sc1_ctrl.e .== 0,:tf], sc1_ctrl[sc1_ctrl.e .== 0, :Stf_hat], marker = [:vline for i in 1:sum(sc1_ctrl.e .== 0)], color = "black")
-            # plot conf interval 
-            if conf_interval
-                lower_95, upper_95 = get_95_conf_interval(sc2_ctrl.nf, sc2_ctrl.Stf_hat)
-                lines!(ax, sc2_ctrl.tf, upper_95, linestyle = :dot, color = "black")
-                lines!(ax, sc2_ctrl.tf, lower_95, linestyle = :dot, color = "black")
-                fill_between!(ax, sc2_ctrl.tf, lower_95, upper_95, color = ("black", 0.1))
-            end 
-            if i != group_of_interest
-                # second subgroup
-                sc1 = sc1[sortperm(sc1.tf),:] 
-                # plot lines
-                lines!(ax, sc1[sc1.e .== 1,:tf], sc1[sc1.e .== 1, :Stf_hat], color = colors[i], label = groups[i]) 
-                # plot censored
-                scatter!(ax, sc1[sc1.e .== 0,:tf], sc1[sc1.e .== 0, :Stf_hat], marker = [:vline for i in 1:sum(sc1.e .== 0)], color = "black")
-                axislegend(ax, position = :rb, labelsize = 11, framewidth = 0)
-                #plot conf interval
-                if conf_interval
-                    lower_95, upper_95 = get_95_conf_interval(sc2.nf, sc2.Stf_hat)
-                    lines!(ax, sc2.tf, upper_95, linestyle = :dot, color = colors[i])
-                    lines!(ax, sc2.tf, lower_95, linestyle = :dot, color = colors[i])
-                    fill_between!(ax, sc2.tf, lower_95, upper_95, color = (colors[i], 0.1))
-                end 
-            end
-        end
-        commitnb = getcurrentcommitnb()
-        title_ax = Axis(fig[1,1]; title = "Survival curves $(groups[group_of_interest]) vs other subgroups\n in TCGA Breast Cancer Data (n=$(length(brca_data.survt)),c=$(sum(brca_data.surve .== 0)))\n$commitnb ", spinewidth = 0, titlegap = 50, titlesize = 14)
-        hidedecorations!(title_ax)
-        push!(figs,fig)
-        CairoMakie.save("$outpath/surv_curves_$(groups[group_of_interest])_1v1.pdf", fig)
-    end
-    return figs
-end
-function get_95_conf_interval(nf, Stf_hat)
-    cond_risk = 1 ./ nf ./ (nf .- 1)
-    cond_risk[1] = 0
-    varStf_hat = Stf_hat .^ 2 .* cumsum(cond_risk)
-    upper_95 = round.(min.(Stf_hat .+ 1.96 .* sqrt.(varStf_hat), ones(length(varStf_hat))), digits = 3)
-    lower_95 = round.(max.(Stf_hat .- 1.96 .* sqrt.(varStf_hat), zeros(length(varStf_hat))), digits = 3)
-    return lower_95, upper_95
-end 
-survt[]
-surve
-subgroups
-ticks = collect(0:250:end_of_study)
-p, x, sc1, sc2 = surv_curve(survt, surve; color = "magenta")
-get_Stf_hat_surv_rates(ticks, sc1)  = [round(Float32(sc1[findall(sc1.tf .>= i),"Stf_hat"][1]);digits=3) for i in ticks]
-Stf_hat_labels = ["$i\n$(label)" for (i,label) in zip(ticks, get_Stf_hat_surv_rates(ticks, sc1))]    
-            
-fig = Figure(resolution = (1000,500));
-ax = Axis(fig[1,1], limits = (0,end_of_study, ylow, 1.05), 
-                yminorticksvisible = true, yminorgridvisible = true, yminorticks = IntervalsBetween(2),
-                yticks = collect(0:10:100) ./ 100,
-                xticks = (ticks, Stf_hat_labels),
-                xlabel = "Elapsed time (days)",
-                ylabel = "Survival (fraction still alive)",
-                titlesize = 11, 
-                xticklabelsize =11, 
-                yticklabelsize =11, 
-                ylabelsize = 11, 
-                xlabelsize = 11,
-                title = "TCGA BRCA complete cohort (n=$(length(survt)),c=$(sum(surve .==0)))")
-
-# plot lines
-lines!(ax, sc1[sc1.e .== 1,:tf], sc1[sc1.e .== 1, :Stf_hat], color = "grey")
-# plot censored
-scatter!(ax, sc1[sc1.e .== 0,:tf], sc1[sc1.e .== 0, :Stf_hat], marker = [:vline for i in 1:sum(sc1.e .== 0)], color = "black")
-# plot conf interval 
-fig
-
-
 figures = plot_brca_subgroups(brca_prediction, unique(brca_prediction.subgroups), outpath; end_of_study = end_of_study);
 
 ### ALL samples ###
@@ -213,4 +96,76 @@ brca_pca_25_df[:,"case_id"] .= case_ids
 CSV.write("RES/SURV/TCGA_BRCA_pca_25_case_ids.csv", brca_pca_25_df)
 CSV.write("RES/SURV/TCGA_BRCA_clinical_survival.csv", BRCA_CLIN)
 # CSV tcga brca surv + clin data 
+brca_pca = CSV.read("RES/SURV/TCGA_brca_pca_25_case_ids.csv", DataFrame)
+### TRAIN COXPH 
+brca_pca.case_id .== brca_prediction.rows
+function cox_nll(t, e, out)
+    ### data already sorted
+    # sorted_ids = sortperm(t)
+    # E = e[sorted_ids]
+    # OUT = out[sorted_ids]
+    uncensored_likelihood = 0
+    for (x_i, e_i) in enumerate(E)
+        if e_i == 1
+            log_risk = log(sum(ℯ .^ OUT[1:x_i+1]))
+            uncensored_likelihood += OUT[x_i] - log_risk    
+        end 
+    end 
+    loss = - uncensored_likelihood / sum(E .== 1)
+    return loss
+end 
 
+function cox_nll_vec(t, e, out, observed_events)
+    ### working 
+    ### weights all over the place (uncomputable loss)
+    hazard_ratios = ℯ .^ out
+    log_risk = log.(cumsum(hazard_ratios))
+    uncensored_likelihood = out .- log_risk
+    censored_likelihood = uncensored_likelihood .* e
+    #neg_likelihood = - sum(censored_likelihood) / sum(e .== 1)
+    neg_likelihood = - sum(censored_likelihood) / observed_events
+    return neg_likelihood
+end 
+function l2_penalty(model)
+    l2_sum = 0
+    for wm in model
+        l2_sum += sum(abs2, wm.weight)
+    end 
+    return l2_sum
+end
+cox_nll(brca_prediction.survt, brca_prediction.surve, outs)
+mdl_opt = Flux.ADAM(1e-3)
+mdl = gpu(Flux.Chain(Flux.Dense(25, 10, relu), Flux.Dense(10, 1, identity)));
+lossf(model, X, t, e, nE, wd) = cox_nll_vec(t, e, vec(model(X)), nE) + wd * l2_penalty(model)
+sorted_ids = sortperm(brca_prediction.survt)
+X = gpu(Matrix(brca_pca[:,1:25][sorted_ids,:])')
+Y_t = gpu(brca_prediction.survt[sorted_ids])
+Y_e = gpu(brca_prediction.surve[sorted_ids])
+lossval = lossf(mdl, X, Y_t,Y_e, sum(E .==1))
+ps = Flux.params(mdl)
+gs = gradient(ps) do 
+    lossf(mdl, X, Y_t,Y_e, sum(e .== 1))    
+end 
+wd = 1e-3
+for step in 1:20_000
+    lossval = lossf(mdl, X, Y_t,Y_e, sum(e .== 1),wd)
+    if step % 1000 == 0
+        println(lossval)
+    end
+    ps = Flux.params(mdl)
+    gs = gradient(ps) do 
+        lossf(mdl, X, Y_t,Y_e, sum(e .== 1), wd)    
+    end 
+    Flux.update!(mdl_opt, ps, gs)
+end 
+
+scores = vec(cpu(mdl(X)))
+median(scores)
+high_risk = scores .> median(scores)
+low_risk = scores .<= median(scores)
+cpu(Y_e)[high_risk]
+cpu(Y_t)[high_risk]
+cpu(Y_e)[low_risk]
+p_high, x_high, sc1_high, sc2_high = surv_curve(cpu(Y_t)[high_risk], cpu(Y_e)[high_risk]; color = "red")
+p_low, x_low, sc1_low, sc2_low = surv_curve(cpu(Y_t)[low_risk], cpu(Y_e)[low_risk]; color = "blue")
+draw(p_high + x_high + p_low + x_low)            

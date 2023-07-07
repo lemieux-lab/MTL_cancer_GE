@@ -1,9 +1,16 @@
 ### Mainframe #####
 ### Kaplan-Meier
 
-function surv_curve(survt, surve; color="black")
-    ordered_failure_times = sort(survt[findall(surve .== 1)])
-    end_of_study = ordered_failure_times[end]
+function surv_curve(survt, surve; default_end_of_study = 365 * 5, color="black")
+    events = findall(surve .== 1)
+    if length(events) != 0
+        ordered_failure_times = sort(survt[events])
+        end_of_study = ordered_failure_times[end]
+    else
+        ordered_failure_times = []
+        end_of_study = default_end_of_study
+    end
+    
     ordered_failure_times = vcat([0], ordered_failure_times, [end_of_study])
     qfs = [] # nb of censored
     nfs = [length(survt)] # risk set
@@ -124,6 +131,100 @@ function log_rank_test(survt, surve, subgroups, groups; end_of_study = 365 * 5)
     logrank_pval = 1 - cdf(Chisq(1), X)
     return logrank_pval
 end 
+function plot_brca_subgroups(brca_data, groups, outpath; 
+    end_of_study = 365 * 5, conf_interval = true, ticks = collect(0:250:end_of_study), 
+    ylow = 0.5) 
+    figs = []
+    
+    colors = ["red","blue","green","purple", "magenta","orange","yellow","grey", "black"]
+    for group_of_interest in 1:size(groups)[1]
+        fig = Figure(resolution =  (1000,1000));
+        grid = fig[1,1] = GridLayout()
+        axes = [grid[row,col] for row in 1:3 for col in 1:2]
+
+        for i in 1:size(groups)[1]
+            comp_groups = [groups[group_of_interest], groups[i]]
+            comp_cohort = findall(brca_data.subgroups .== comp_groups[1] .|| brca_data.subgroups .== comp_groups[2])
+            comp_survt= brca_data.survt[comp_cohort]
+            comp_surve= brca_data.surve[comp_cohort]
+            comp_subgroups = brca_data.subgroups[comp_cohort]
+            lrt_pval = round(log_rank_test(comp_survt, comp_surve, comp_subgroups, comp_groups; end_of_study = end_of_study); digits = 5)
+
+            group = groups[group_of_interest]
+            cohort = findall(brca_data.subgroups .== group)
+            # first subgroup
+            p, x, sc1_ctrl, sc2_ctrl = surv_curve(brca_data.survt[cohort], brca_data.surve[cohort]; color = colors[i])
+            p, x, sc1, sc2 = surv_curve(brca_data.survt[findall(brca_data.subgroups .== groups[i])], brca_data.surve[findall(brca_data.subgroups .== groups[i])]; color = colors[i])
+            sc1_ctrl = sc1_ctrl[sortperm(sc1_ctrl.tf),:]
+            
+            Stf_hat_labels = ["$i\n$(label)" for (i,label) in zip(ticks, get_Stf_hat_surv_rates(ticks, sc1_ctrl))]    
+            caption = "$group (n=$(length(cohort)),c=$(sum(brca_data.surve[cohort].==0))) vs $(groups[i]) (n=$(length(findall(brca_data.subgroups .== groups[i]))),c=$(sum(brca_data.surve[findall(brca_data.subgroups .== groups[i])].==0)))"
+            if i != group_of_interest
+                caption = "$caption\nLog-Rank Test pval: $lrt_pval"
+                Stf_hat_labels = ["$tick\n$(label)" for (tick,label) in zip(Stf_hat_labels, get_Stf_hat_surv_rates(ticks, sc1))]       
+            end
+            ax = Axis(axes[i], limits = (0,end_of_study, ylow, 1.05), 
+                yminorticksvisible = true, yminorgridvisible = true, yminorticks = IntervalsBetween(2),
+                yticks = collect(0:10:100) ./ 100,
+                xticks = (ticks, Stf_hat_labels),
+                xlabel = "Elapsed time (days)",
+                ylabel = "Survival (fraction still alive)",
+                titlesize = 11, 
+                xticklabelsize =11, 
+                yticklabelsize =11, 
+                ylabelsize = 11, 
+                xlabelsize = 11,
+                title = caption)
+            # plot lines
+            lines!(ax, sc1_ctrl[sc1_ctrl.e .== 1,:tf], sc1_ctrl[sc1_ctrl.e .== 1, :Stf_hat], color = "grey", label = groups[group_of_interest]) 
+            # plot censored
+            scatter!(ax, sc1_ctrl[sc1_ctrl.e .== 0,:tf], sc1_ctrl[sc1_ctrl.e .== 0, :Stf_hat], marker = [:vline for i in 1:sum(sc1_ctrl.e .== 0)], color = "black")
+            # plot conf interval 
+            if conf_interval
+                conf_tf, lower_95, upper_95 = get_95_conf_interval(sc2_ctrl.tf, sc2_ctrl.nf, sc2_ctrl.Stf_hat, end_of_study)
+                lines!(ax, conf_tf, upper_95, linestyle = :dot, color = "black")
+                lines!(ax, conf_tf, lower_95, linestyle = :dot, color = "black")
+                fill_between!(ax, conf_tf, lower_95, upper_95, color = ("black", 0.1))
+            end 
+            if i != group_of_interest
+                # second subgroup
+                sc1 = sc1[sortperm(sc1.tf),:] 
+                # plot lines
+                lines!(ax, sc1[sc1.e .== 1,:tf], sc1[sc1.e .== 1, :Stf_hat], color = colors[i], label = groups[i]) 
+                # plot censored
+                scatter!(ax, sc1[sc1.e .== 0,:tf], sc1[sc1.e .== 0, :Stf_hat], marker = [:vline for i in 1:sum(sc1.e .== 0)], color = "black")
+                axislegend(ax, position = :rb, labelsize = 11, framewidth = 0)
+                #plot conf interval
+                if conf_interval
+                    conf_tf, lower_95, upper_95 = get_95_conf_interval(sc2.tf, sc2.nf, sc2.Stf_hat, end_of_study)
+                    lines!(ax, conf_tf, upper_95, linestyle = :dot, color = colors[i])
+                    lines!(ax, conf_tf, lower_95, linestyle = :dot, color = colors[i])
+                    fill_between!(ax, conf_tf, lower_95, upper_95, color = (colors[i], 0.1))
+                end 
+            end
+        end
+        commitnb = getcurrentcommitnb()
+        title_ax = Axis(fig[1,1]; title = "Survival curves $(groups[group_of_interest]) vs other subgroups\n in TCGA Breast Cancer Data (n=$(length(brca_data.survt)),c=$(sum(brca_data.surve .== 0)))\n$commitnb ", spinewidth = 0, titlegap = 50, titlesize = 14)
+        hidedecorations!(title_ax)
+        push!(figs,fig)
+        CairoMakie.save("$outpath/surv_curves_$(groups[group_of_interest])_1v1.pdf", fig)
+    end
+    return figs
+end
+
+
+function get_95_conf_interval(tf, nf, Stf_hat, end_of_study)
+    cond_risk = 1 ./ nf ./ (nf .- 1)
+    cond_risk[1] = 0
+    varStf_hat = Stf_hat .^ 2 .* cumsum(cond_risk)
+    upper_95 = round.(min.(Stf_hat .+ 1.96 .* sqrt.(varStf_hat), ones(length(varStf_hat))), digits = 3)
+    lower_95 = round.(max.(Stf_hat .- 1.96 .* sqrt.(varStf_hat), zeros(length(varStf_hat))), digits = 3)
+    conf_tf = sort(vcat(tf, vcat(tf[2:end], end_of_study)))
+    lower_95 = reverse(sort(vcat(lower_95, lower_95)))
+    upper_95 = reverse(sort(vcat(upper_95, upper_95)))
+    return conf_tf, lower_95, upper_95
+end 
+
 
 ### Cox Proportional Hazards
 ### Deep Neural Network CPH
