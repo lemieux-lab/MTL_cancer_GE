@@ -131,6 +131,7 @@ function log_rank_test(survt, surve, subgroups, groups; end_of_study = 365 * 5)
     logrank_pval = 1 - cdf(Chisq(1), X)
     return logrank_pval
 end 
+get_Stf_hat_surv_rates(ticks, sc1)  = [round(Float32(sc1[findall(sc1.tf .>= i),"Stf_hat"][1]);digits=3) for i in ticks]
 function plot_brca_subgroups(brca_data, groups, outpath; 
     end_of_study = 365 * 5, conf_interval = true, ticks = collect(0:250:end_of_study), 
     ylow = 0.5) 

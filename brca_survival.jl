@@ -4,6 +4,8 @@ Pkg.instantiate() # should be quick!
 include("data_processing.jl")
 include("mtl_engines.jl")
 include("utils.jl")
+include("SurvivalDev.jl")
+
 outpath, session_id = set_dirs() 
 #brca_prediction = GDC_data("Data/GDC_processed/TCGA_BRCA_TPM_lab.h5", log_transform = true, shuffled = true);
 
@@ -65,7 +67,6 @@ write_h5(TCGA_BRCA_TPM_surv, "Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5")
 brca_prediction = GDC_data_surv("Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5";log_transf = true);
 
 ##### DEV
-include("SurvivalDev.jl")
 subgroups = brca_prediction.subgroups
 end_of_study = 365 * 5 # 10 years 
 survt = brca_prediction.survt
