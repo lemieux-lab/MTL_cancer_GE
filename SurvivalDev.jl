@@ -131,7 +131,7 @@ function log_rank_test(survt, surve, subgroups, groups; end_of_study = 365 * 5)
     logrank_pval = 1 - cdf(Chisq(1), X)
     return logrank_pval
 end 
-get_Stf_hat_surv_rates(ticks, sc1)  = [round(Float32(sc1[findall(sc1.tf .>= i),"Stf_hat"][1]);digits=3) for i in ticks]
+get_Stf_hat_surv_rates(ticks, sc1)  = [round(sc1[findall(sc1.tf .<= i)[end],"Stf_hat"][1];digits=2) for i in ticks]
 function plot_brca_subgroups(brca_data, groups, outpath; 
     end_of_study = 365 * 5, conf_interval = true, ticks = collect(0:250:end_of_study), 
     ylow = 0.5) 
@@ -229,3 +229,110 @@ end
 
 ### Cox Proportional Hazards
 ### Deep Neural Network CPH
+### TRAIN COXPH 
+function cox_nll(t, e, out)
+    ### data already sorted
+    # sorted_ids = sortperm(t)
+    # E = e[sorted_ids]
+    # OUT = out[sorted_ids]
+    uncensored_likelihood = 0
+    for (x_i, e_i) in enumerate(E)
+        if e_i == 1
+            log_risk = log(sum(ℯ .^ OUT[1:x_i+1]))
+            uncensored_likelihood += OUT[x_i] - log_risk    
+        end 
+    end 
+    loss = - uncensored_likelihood / sum(E .== 1)
+    return loss
+end 
+function build_cphdnn(params;device =gpu)
+    mdl = Flux.Chain(Flux.Dense(params["insize"], params["hl1_size"], relu), 
+    Flux.Dense(params["hl1_size"], params["hl2_size"], relu), 
+    Flux.Dense(params["hl2_size"], 1, params["acto"]));
+    return device(mdl) 
+end 
+function cox_nll_vec(mdl, X, Y_e, Ne_frac)
+    ### working 
+    ### weights all over the place (uncomputable loss)
+    outs = vec(mdl(X))
+    hazard_ratios = exp.(outs)
+    log_risk = log.(cumsum(hazard_ratios))
+    uncensored_likelihood = outs .- log_risk
+    censored_likelihood = uncensored_likelihood .* Y_e
+    #neg_likelihood = - sum(censored_likelihood) / sum(e .== 1)
+    neg_likelihood = - sum(censored_likelihood) * Ne_frac
+    return neg_likelihood
+end 
+function l2_penalty(model)
+    l2_sum = 0
+    for wm in model
+        l2_sum += sum(abs2, wm.weight)
+    end 
+    return l2_sum
+end
+function concordance_index(scores, survt, surve)
+    function helper(S,T,E)
+        #vector computation of c_index 
+        n = length(S)
+        concordant_pairs = S .> S'
+        tied_pairs = vec(sum(S .== S', dims = 1)') - ones(length(S))
+        admissable_pairs = T .< T'
+        c_ind = sum(E' .* admissable_pairs .* concordant_pairs) + 0.5 * sum(tied_pairs)
+        c_ind = c_ind / sum(E .* vec(sum(admissable_pairs, dims = 1)') .+ sum(tied_pairs))
+        return c_ind 
+    end 
+    c = helper(scores,survt,surve)
+    if c < 0.5 
+        c = helper(-scores, survt,surve)
+    end
+    return c 
+end
+function split_train_test(X::Matrix, Y_t::Vector,Y_e::Vector, case_ids::Vector; nfolds = 10)
+    folds = Array{Dict, 1}(undef, nfolds)
+    nsamples = size(X)[1]
+    fold_size = Int(floor(nsamples / nfolds))
+    ids = collect(1:nsamples)
+    shuffled_ids = shuffle(ids)
+    for i in 1:nfolds
+        tst_ids = shuffled_ids[collect((i-1) * fold_size +1: min(nsamples, i * fold_size))]
+        tr_ids = setdiff(ids, tst_ids)
+        X_train = X[tr_ids,:]
+        Y_t_train = Y_t[tr_ids]
+        Y_e_train = Y_e[tr_ids]
+        X_test = X[tst_ids,:]
+        Y_t_test = Y_t[tst_ids]
+        Y_e_test = Y_e[tst_ids]
+
+        folds[i] = Dict("tr_ids"=>case_ids[tr_ids], "X_train"=>X_train,"Y_t_train"=>Y_t_train, "Y_e_train"=>Y_e_train,
+                        "tst_ids"=>case_ids[tst_ids], "X_test"=>X_test, "Y_t_test"=>Y_t_test, "Y_e_test"=>Y_e_test)
+    end
+    return folds 
+end 
+lossf(mdl, X, Y_e, NE, wd) = cox_nll_vec(mdl, X, Y_e, NE) + wd * l2_penalty(mdl)
+    
+function train_cphdnn!(mdl,X_train, Y_t_train, Y_e_train, X_test, Y_t_test, Y_e_test;nsteps=20_000,wd=1e-3)
+    mdl_opt = Flux.ADAM(1e-3)
+    loss_tr = []
+    loss_tst = []
+    c_ind_tr = []
+    c_ind_tst = []
+    for step in 1:nsteps
+        NE_frac_tr = sum(Y_e_train .== 1) != 0 ? 1 / sum(Y_e_train .== 1) : 0 
+        NE_frac_tst = sum(Y_e_test .== 1) != 0 ? 1 / sum(Y_e_test .== 1) : 0 
+        lossval_tr = lossf(mdl, X_train, Y_e_train, NE_frac_tr, wd)
+        lossval_tst = lossf(mdl, X_test, Y_e_test, NE_frac_tst, wd)
+        push!(loss_tr, lossval_tr)
+        push!(loss_tst, lossval_tst)
+        if step % 1000==0 || step == 1 
+            push!(c_ind_tr, concordance_index(vec(mdl(X_train)), Y_t_train, Y_e_train))
+            push!(c_ind_tst, concordance_index(vec(mdl(X_test)), Y_t_test, Y_e_test))
+            println("$step TRAIN c_ind: $(round(c_ind_tr[end], digits = 3)) loss: $(round(loss_tr[end], digits =3)), TEST c_ind: $(round(c_ind_tst[end],digits =3)) loss: $(round(loss_tst[end], digits = 3))")
+        end
+        ps = Flux.params(mdl)
+        gs = gradient(ps) do 
+            lossf(mdl, X_train, Y_e_train, NE_frac_tr, wd)
+        end 
+        Flux.update!(mdl_opt, ps, gs)
+    end 
+    return loss_tr, loss_tst, c_ind_tr, c_ind_tst
+end 
