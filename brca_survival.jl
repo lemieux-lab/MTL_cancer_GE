@@ -81,19 +81,8 @@ TCGA_BRCA_TPM_surv = GDC_data_surv(
 
 write_h5(TCGA_BRCA_TPM_surv, "Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5")
 
-brca_prediction = GDC_data_surv("Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5";log_transf = true);
-brca_prediction.data
-max(brca_prediction.survt...)
-##### DEV
-subgroups = brca_prediction.subgroups
-end_of_study = max(brca_prediction.survt...)# 365 * 10 # 10 years 
-survt = brca_prediction.survt
-surve = brca_prediction.surve
-surve[survt .>= end_of_study] .= 0 
-survt[survt .>= end_of_study] .= end_of_study 
 
-p, c, sc1, sc2 = surv_curve(survt, surve)
-findall(sc1.tf .<= 100)[end]
+#### plot surv curves
 figures = plot_brca_subgroups(brca_prediction, unique(brca_prediction.subgroups), outpath; end_of_study = end_of_study);
 
 ### ALL samples ###
@@ -103,12 +92,17 @@ sum(BRCA_CLIN[:,"PAM50 mRNA"] .== brca_prediction.subgroups)
 names(BRCA_CLIN)
 BRCA_CLIN = BRCA_CLIN[:,1:14]
 BRCA_CLIN = innerjoin(BRCA_CLIN, tmp, on = :case_id)
+
+include("SurvivalDev.jl")
+
+##### DATA loading
 #brca_prediction = GDC_data_surv(TPM_data, case_ids, gene_names, subgroups, survt, surve) 
+brca_prediction = GDC_data_surv("Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5";log_transf = true);
 highv = reverse(sortperm([var(x) for x in 1:size(brca_prediction.data)[2]]))
 highv_25 = highv[1:Int(floor(length(highv)*0.25))]
 brca_pred_subset = GDC_data_surv(brca_prediction.data[:,highv_25], brca_prediction.rows, brca_prediction.cols[highv_25], brca_prediction.subgroups, brca_prediction.survt, brca_prediction.surve)
-include("SurvivalDev.jl")
-# CSV tcga brca pca 25
+
+##### PCA
 using MultivariateStats
 max(brca_pred_subset.data'...)
 pca = fit(PCA, brca_pred_subset.data', maxoutdim=25, method = :cov);
@@ -120,24 +114,6 @@ CSV.write("RES/SURV/TCGA_BRCA_clinical_survival.csv", BRCA_CLIN)
 # CSV tcga brca surv + clin data 
 brca_pca = CSV.read("RES/SURV/TCGA_brca_pca_25_case_ids.csv", DataFrame)
 
-folds[1]["tst_ids"]
-cox_nll(brca_prediction.survt, brca_prediction.surve, outs)
-mdl_opt = Flux.ADAM(1e-3)
-wd = 1e-3
-mdl = gpu(Flux.Chain(Flux.Dense(25, 10, relu), Flux.Dense(10, 1, identity)));
-lossf(model, X, t, e, nE, wd) = cox_nll_vec(t, e, vec(model(X)), nE) + wd * l2_penalty(model)
-lossf(model, X, t, e, nE, wd) = cox_nll_vec(t, e, vec(model(X)), nE) 
-
-
-ps = Flux.params(mdl)
-lossval = lossf(mdl, X, Y_t, Y_e, sum(Y_e .== 1), wd)
-gs = gradient(ps) do 
-    lossf(mdl, X, Y_t,Y_e, sum(Y_e .== 1), wd)
-end
-Flux.update!(mdl_opt, ps, gs)
-
-insize = 25
-nfolds = 5
 brca_pca[:,"is_her2"] .= subgroups .== "HER2-enriched"
 brca_pca[:,"is_lumA"] .= subgroups .== "Luminal A"
 brca_pca[:,"is_lumB"] .= subgroups .== "Luminal B"
@@ -146,59 +122,25 @@ brca_pca[:,"survt"] .= brca_prediction.survt ./ 10_000
 brca_pca[:,"surve"] .= brca_prediction.surve
 
 
-folds = split_train_test(Matrix(brca_pca[:,collect(1:25)]), brca_prediction.survt, brca_prediction.surve, vec(brca_pca[:,26]);nfolds = nfolds)
-outs = []
-survts = []
-surves = []
-Flux.update!(mdl_opt, ps, gs)
-params = Dict("insize"=>25,
+folds = split_train_test(Matrix(brca_pca[:,collect(1:25)]), brca_prediction.survt, brca_prediction.surve, vec(brca_pca[:,26]);nfolds =5)
+
+params = Dict("insize"=>size(folds[1]["X_train"])[2],
     "hl1_size" => 20,
     "hl2_size" => 20,
-    "acto"=>sigmoid
+    "acto"=>sigmoid,
+    "nbsteps" => 10_000,
+    "wd" => 1e-3
     )
+
 mdl = build_cphdnn(params)
+mdl = build_ae(params)
+
 min(cpu(mdl(gpu(Matrix(folds[1]["X_train"]'))))...)
 include("SurvivalDev.jl")
-nbsteps = 10_000
-wd = 1e-3
-for foldn in 1:nfolds 
-    fold = folds[foldn]
-
-    sorted_ids = reverse(sortperm(fold["Y_t_train"]))
-    X_train = gpu(Matrix(fold["X_train"][sorted_ids,:]'))
-    Y_t_train = gpu(fold["Y_t_train"][sorted_ids])
-    Y_e_train = gpu(fold["Y_e_train"][sorted_ids])
 
 
-    sorted_ids = reverse(gpu(sortperm(fold["Y_t_test"])))
-    X_test = gpu(Matrix(fold["X_test"][sorted_ids,:]'))
-    Y_t_test = gpu(fold["Y_t_test"][sorted_ids])
-    Y_e_test = gpu(fold["Y_e_test"][sorted_ids])
+validate_cphdnn(params, folds;device =cpu)
 
-    mdl_opt = Flux.ADAM(1e-4)
-    
-    mdl = build_cphdnn(params)    
-    loss_tr, loss_vld, c_ind_tr, c_ind_vld = train_cphdnn!(mdl, X_train, Y_t_train, Y_e_train, X_test, Y_t_test, Y_e_test;nsteps =nbsteps,wd=wd)
-    push!(outs, vec(cpu(mdl(X_test))))
-    push!(survts, cpu(Y_t_test))
-    push!(surves, cpu(Y_e_test))
-    
-    fig = Figure();
-    ax = Axis(fig[1,1],xlabel = "Nb. of gradient steps", ylabel ="Cox Negative-Likelihood", title = "FOLD: $foldn, sample size: $(size(X_train)[1])")
-    lines!(ax, collect(1:length(loss_tr)), Vector{Float32}(loss_tr),color = "blue",label = "training")
-    lines!(ax, collect(1:length(loss_vld)), Vector{Float32}(loss_vld),color = "orange",label = "test")
-    axislegend(ax, position = :rb)
-    fig
-    CairoMakie.save("$outpath/training_curve_loss_fold_$foldn.pdf",fig)
-
-    fig = Figure();
-    ax = Axis(fig[1,1],xlabel = "Nb. of gradient steps", ylabel ="Concordance index", limits = (0,nbsteps,0.5,1))
-    lines!(ax, vcat([1], collect(1000:1000:nbsteps)), Vector{Float32}(c_ind_tr),color = "blue",label = "training")
-    lines!(ax, vcat([1], collect(1000:1000:nbsteps)), Vector{Float32}(c_ind_vld),color = "orange",label = "test")
-    axislegend(ax, position = :rb)
-    fig
-    CairoMakie.save("$outpath/training_curve_c_index_fold_$foldn.pdf",fig)
-end 
 fold = folds[1]
 mdl = build_cphdnn(params)
 sorted_ids = sortperm(fold["Y_t_train"])
