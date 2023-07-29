@@ -23,8 +23,73 @@ lgn_prediction = GDC_data_surv(ge_cds_all.data, ge_cds_all.factor_1, ge_cds_all.
 lgn_lsc17_prediction = GDC_data_surv(Matrix(lsc17[:,2:end]), vec(lsc17[:,1]),vec(names(lsc17)[2:end]) , interest_groups, cf[:,"Overall_Survival_Time_days"], cf[:,"Overall_Survival_Status"])
 #folds = split_train_test(lgn_prediction.data,lgn_prediction.survt,lgn_prediction.surve, lgn_prediction.rows;nfolds = 5)
 folds =  split_train_test(lgn_lsc17_prediction.data,lgn_lsc17_prediction.survt,lgn_lsc17_prediction.surve, lgn_lsc17_prediction.rows;nfolds = 5)
-folds[1]
+folds[1]["X_train"]
+# regular COXPH
+cph_params =  Dict("insize"=>size(lgn_lsc17_prediction.data)[2],
+"nbsteps" => 30_000,
+"wd" => 1e-3,
+"lr" => 1e-3
+)
+function build_cph(params)
+    mdl = Flux.Dense(params["insize"], 1, identity)
+    return mdl
+end 
+#Flux.params(mdl)[1] .= zeros(1,17)
+# train
+for (foldi, fold) in enumerate(folds) 
+    mdl = build_cph(cph_params)
+    mdl.weight .= zeros(1,17)
+    opt = Flux.Adam(cph_params["lr"])
+    ps = Flux.params(mdl)
 
+    order = sortperm(folds[foldi]["Y_t_train"])
+    X_train = Matrix(folds[foldi]["X_train"][order,:]')
+    Yt_train = folds[foldi]["Y_t_train"][order]
+    Ye_train = folds[foldi]["Y_e_train"][order]
+    NE_frac_tr = sum(Ye_train .== 1) != 0 ? 1 / sum(Ye_train .== 1) : 0
+        
+    order = sortperm(folds[foldi]["Y_t_test"])
+    X_test = Matrix(folds[foldi]["X_test"][order,:]')
+    Yt_test = folds[foldi]["Y_t_test"][order]
+    Ye_test = folds[foldi]["Y_e_test"][order]
+    NE_frac_tst = sum(Ye_test .== 1) != 0 ? 1 / sum(Ye_test .== 1) : 0
+        
+    for i in 1:5000
+        mdl(X_train)
+        gs = gradient(ps) do 
+            cox_nll(mdl,X_train, Ye_train, NE_frac_tr) + cph_params["wd"] * sum(abs2, mdl.weight)
+        end
+        Flux.update!(opt, ps, gs)
+        if i % 100 == 0 || i == 1 
+            lossv_tr = round(cox_nll(mdl,X_train, Ye_train, NE_frac_tr), digits = 3)
+            cind_tr = round(c_index_dev(Yt_train, Ye_train,vec(mdl(X_train))), digits = 3)
+            lossv_tst = round(cox_nll(mdl,X_test, Ye_test, NE_frac_tst), digits = 3)
+            cind_tst = round(c_index_dev(Yt_test, Ye_test,vec(mdl(X_test))), digits = 3)
+            
+            println("$i TRAIN loss: $lossv_tr, c_ind : $cind_tr TEST loss: $lossv_tst, c_ind: $cind_tst")
+        end 
+    end 
+end
+foldi = 1
+order = reverse(sortperm(folds[foldi]["Y_t_train"]))
+X_train = Matrix(folds[foldi]["X_train"][order,:]')
+Yt_train = folds[foldi]["Y_t_train"][order]
+Ye_train = folds[foldi]["Y_e_train"][order]
+NE_frac_tr = sum(Ye_train .== 1) != 0 ? 1 / sum(Ye_train .== 1) : 0
+    
+mdl = build_cph(cph_params)
+mdl.weight .= zeros(1,17)
+opt = Flux.Adam(cph_params["lr"])
+ps = Flux.params(mdl)
+
+mdl(X_train)
+gs = gradient(ps) do 
+    cox_nll(mdl,X_train, Ye_train, NE_frac_tr)
+end
+fig = Figure();
+ax = Axis(fig[1,1], title = "histogram of scores")
+hist!(ax, vec(mdl(X_train)))
+fig
 params = Dict("insize"=>size(lgn_lsc17_prediction.data)[2],
     "hl1_size" => 20,
     "hl2_size" => 20,
@@ -32,8 +97,6 @@ params = Dict("insize"=>size(lgn_lsc17_prediction.data)[2],
     "nbsteps" => 30_000,
     "wd" => 1e-3
     )
-
-mdl = build_cphdnn(params)
 
 outs, survts, surves = validate_cphdnn(params, folds;device = cpu)
 
