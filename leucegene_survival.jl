@@ -7,6 +7,7 @@ include("utils.jl")
 include("SurvivalDev.jl")
 include("lgn_data_processing.jl")
 ### loading data 
+outpath, session_id = set_dirs() 
 basepath = "/u/sauves/MTL_cancer_GE/"
 clinical_fname = "$(basepath)/Data/LEUCEGENE/lgn_pronostic_CF"
 ge_cds_fname = "$(basepath)/Data/LEUCEGENE/lgn_pronostic_GE_CDS_TPM.csv"
@@ -26,7 +27,7 @@ folds =  split_train_test(lgn_lsc17_prediction.data,lgn_lsc17_prediction.survt,l
 folds[1]["X_train"]
 # regular COXPH
 cph_params =  Dict("insize"=>size(lgn_lsc17_prediction.data)[2],
-"nbsteps" => 30_000,
+"nbsteps" => 3000,
 "wd" => 1e-3,
 "lr" => 1e-3
 )
@@ -36,67 +37,134 @@ function build_cph(params)
 end 
 #Flux.params(mdl)[1] .= zeros(1,17)
 # train
+
+outs = []
+survts = []
+surves = []
 for (foldi, fold) in enumerate(folds) 
+    loss_tr = []
+    loss_vld = []
+    c_ind_tr = [] 
+    c_ind_vld = []
     mdl = build_cph(cph_params)
     mdl.weight .= zeros(1,17)
     opt = Flux.Adam(cph_params["lr"])
     ps = Flux.params(mdl)
 
-    order = sortperm(folds[foldi]["Y_t_train"])
-    X_train = Matrix(folds[foldi]["X_train"][order,:]')
-    Yt_train = folds[foldi]["Y_t_train"][order]
-    Ye_train = folds[foldi]["Y_e_train"][order]
-    NE_frac_tr = sum(Ye_train .== 1) != 0 ? 1 / sum(Ye_train .== 1) : 0
+    orderl = sortperm(folds[foldi]["Y_t_train"])
+    X_train = Matrix(folds[foldi]["X_train"][orderl,:]')
+    Yt_train = folds[foldi]["Y_t_train"][orderl]
+    Ye_train = folds[foldi]["Y_e_train"][orderl]
+    #NE_frac_tr = sum(Ye_train .== 1) != 0 ? 1 / sum(Ye_train .== 1) : 0
         
-    order = sortperm(folds[foldi]["Y_t_test"])
-    X_test = Matrix(folds[foldi]["X_test"][order,:]')
-    Yt_test = folds[foldi]["Y_t_test"][order]
-    Ye_test = folds[foldi]["Y_e_test"][order]
-    NE_frac_tst = sum(Ye_test .== 1) != 0 ? 1 / sum(Ye_test .== 1) : 0
+    orderl = sortperm(folds[foldi]["Y_t_test"])
+    X_test = Matrix(folds[foldi]["X_test"][orderl,:]')
+    Yt_test = folds[foldi]["Y_t_test"][orderl]
+    Ye_test = folds[foldi]["Y_e_test"][orderl]
+    #NE_frac_tst = sum(Ye_test .== 1) != 0 ? 1 / sum(Ye_test .== 1) : 0
         
-    for i in 1:5000
-        mdl(X_train)
+    for i in 1:cph_params["nbsteps"]
         gs = gradient(ps) do 
-            cox_nll(mdl,X_train, Ye_train, NE_frac_tr) + cph_params["wd"] * sum(abs2, mdl.weight)
+            cox_nll(vec(mdl(X_train)), Ye_train) + cph_params["wd"] * sum(abs2, mdl.weight)
         end
         Flux.update!(opt, ps, gs)
         if i % 100 == 0 || i == 1 
-            lossv_tr = round(cox_nll(mdl,X_train, Ye_train, NE_frac_tr), digits = 3)
-            cind_tr = round(c_index_dev(Yt_train, Ye_train,vec(mdl(X_train))), digits = 3)
-            lossv_tst = round(cox_nll(mdl,X_test, Ye_test, NE_frac_tst), digits = 3)
-            cind_tst = round(c_index_dev(Yt_test, Ye_test,vec(mdl(X_test))), digits = 3)
-            
-            println("$i TRAIN loss: $lossv_tr, c_ind : $cind_tr TEST loss: $lossv_tst, c_ind: $cind_tst")
+            lossv_tr = round(cox_nll(vec(mdl(X_train)), Ye_train), digits = 3)
+            cind_tr = round(c_index_dev(Yt_train, Ye_train, -1 .* vec(mdl(X_train))), digits = 3)
+            lossv_tst = round(cox_nll(vec(mdl(X_test)), Ye_test), digits = 3)
+            cind_tst = round(c_index_dev(Yt_test, Ye_test, -1 .* vec(mdl(X_test))), digits = 3)
+            push!(loss_tr, lossv_tr)
+            push!(loss_vld, lossv_tst)
+            push!(c_ind_tr, cind_tr)
+            push!( c_ind_vld,cind_tst)
+            println("FOLD $foldi - $i TRAIN loss: $lossv_tr, c_ind : $cind_tr TEST loss: $lossv_tst, c_ind: $cind_tst")
         end 
     end 
-end
-foldi = 1
-order = reverse(sortperm(folds[foldi]["Y_t_train"]))
-X_train = Matrix(folds[foldi]["X_train"][order,:]')
-Yt_train = folds[foldi]["Y_t_train"][order]
-Ye_train = folds[foldi]["Y_e_train"][order]
-NE_frac_tr = sum(Ye_train .== 1) != 0 ? 1 / sum(Ye_train .== 1) : 0
-    
-mdl = build_cph(cph_params)
-mdl.weight .= zeros(1,17)
-opt = Flux.Adam(cph_params["lr"])
-ps = Flux.params(mdl)
+    fig = Figure();
+    ax = Axis(fig[1,1],xlabel = "Nb. of gradient steps", ylabel ="Cox Negative-Likelihood", title = "FOLD: $foldi, sample size: $(size(X_train)[1])")
+    lines!(ax, collect(1:length(loss_tr)), Vector{Float32}(loss_tr),color = "blue",label = "training")
+    lines!(ax, collect(1:length(loss_vld)), Vector{Float32}(loss_vld),color = "orange",label = "test")
+    axislegend(ax, position = :rb)
 
-mdl(X_train)
-gs = gradient(ps) do 
-    cox_nll(mdl,X_train, Ye_train, NE_frac_tr)
+    CairoMakie.save("$outpath/training_curve_loss_fold_$foldi.pdf",fig)
+    fig = Figure();
+    ax = Axis(fig[1,1],xlabel = "Nb. of gradient steps", ylabel ="Concordance index", limits = (0,cph_params["nbsteps"],0,1))
+    lines!(ax, vcat([1], collect(100:100:cph_params["nbsteps"])), Vector{Float32}(c_ind_tr),color = "blue",label = "training")
+    lines!(ax, vcat([1], collect(100:100:cph_params["nbsteps"])), Vector{Float32}(c_ind_vld),color = "orange",label = "test")
+    axislegend(ax, position = :rb)
+
+    CairoMakie.save("$outpath/training_curve_c_index_fold_$foldi.pdf",fig)
+    push!(outs, -1 .* vec(cpu(mdl(X_test))) )
+    push!(survts, cpu(Yt_test))
+    push!(surves, cpu(Ye_test))
 end
+
+
+
+concat_outs = vcat(outs...)
+concat_survts = vcat(survts...)
+concat_surves = vcat(surves...)
+nsamples = length(concat_survts)
+cis = []
+bootstrapn = 1000
+for i in 1:bootstrapn
+sampling = rand(1:nsamples, nsamples)
+push!(cis, concordance_index(concat_outs[sampling], concat_survts[sampling], concat_surves[sampling]))
+end 
+sorted_accs = sort(cis)
+low_ci, med, upp_ci = sorted_accs[Int(round(bootstrapn * 0.025))], median(sorted_accs), sorted_accs[Int(round(bootstrapn * 0.975))]
+
+C_IND = concordance_index(concat_outs, concat_survts, concat_surves)
+
+end_of_study = Int(max(concat_survts...))
+scores = concat_outs
+median(scores)
+groups = ["low_risk" for i in 1:length(scores)]
+high_risk = scores .> median(scores)
+low_risk = scores .<= median(scores)
+groups[high_risk] .= "high_risk"
+p_high, x_high, sc1_high, sc2_high = surv_curve(concat_survts[high_risk], concat_surves[high_risk]; color = "red")
+p_low, x_low, sc1_low, sc2_low = surv_curve(concat_survts[low_risk], concat_surves[low_risk]; color = "blue")
+draw(p_high + x_high + p_low + x_low)    
 fig = Figure();
-ax = Axis(fig[1,1], title = "histogram of scores")
-hist!(ax, vec(mdl(X_train)))
+ticks = collect(0:250:end_of_study)
+Stf_hat_labels = ["$i\n$(label)" for (i,label) in zip(ticks, get_Stf_hat_surv_rates(ticks, sc1_high))] 
+ylow = 0
+lrt_pval = round(log_rank_test(concat_survts, concat_surves, groups, ["low_risk", "high_risk"]; end_of_study = end_of_study); digits = 5)
+
+caption = "High risk vs Low risk based on median of risk scores by CPHDNN \n on Leucegene data using LSC17 Gene Expression (N=$nsamples)\n concordance index = $(round(C_IND,digits =3)) Log-rank-test pval = $lrt_pval"
+            
+ax = Axis(fig[1,1], limits = (0,end_of_study, ylow, 1.05), 
+                yminorticksvisible = true, yminorgridvisible = true, yminorticks = IntervalsBetween(2),
+                yticks = collect(0:10:100) ./ 100,
+                xticks = (ticks, Stf_hat_labels),
+                xlabel = "Elapsed time (days)",
+                ylabel = "Survival (fraction still alive)",
+                titlesize = 14, 
+                xticklabelsize =11, 
+                yticklabelsize =11, 
+                ylabelsize = 14, 
+                xlabelsize = 14,
+                title = caption)
+
+# plot lines
+lines!(ax, Array{Int64}(sc1_low[sc1_low.e .== 1,:tf]), sc1_low[sc1_low.e .== 1, :Stf_hat], color = "blue", label = "low risk (scores < median)") 
+conf_tf, lower_95, upper_95 = get_95_conf_interval(sc2_low.tf, sc2_low.nf, sc2_low.Stf_hat, end_of_study)
+lines!(ax, Array{Int64}(conf_tf), upper_95, linestyle = :dot, color = "blue")
+lines!(ax, Array{Int64}(conf_tf), lower_95, linestyle = :dot, color = "blue")
+fill_between!(ax, conf_tf, lower_95, upper_95, color = ("blue", 0.1))
+# plot censored
+# scatter!(ax, sc1_low[sc1_low.e .== 0,:tf], sc1_low[sc1_low.e .== 0, :Stf_hat], marker = [:vline for i in 1:sum(sc1_low.e .== 0)], color = "black")
+lines!(ax, sc1_high[sc1_high.e .== 1,:tf], sc1_high[sc1_high.e .== 1, :Stf_hat], color = "red", label = "high risk (scores > median)") 
+conf_tf, lower_95, upper_95 = get_95_conf_interval(sc2_high.tf, sc2_high.nf, sc2_high.Stf_hat, end_of_study)
+lines!(ax, conf_tf, upper_95, linestyle = :dot, color = "red")
+lines!(ax, conf_tf, lower_95, linestyle = :dot, color = "red")
+fill_between!(ax, conf_tf, lower_95, upper_95, color = ("red", 0.1))
+axislegend(ax, position = :rb, labelsize = 11, framewidth = 0)
+                
 fig
-params = Dict("insize"=>size(lgn_lsc17_prediction.data)[2],
-    "hl1_size" => 20,
-    "hl2_size" => 20,
-    "acto"=>identity,
-    "nbsteps" => 30_000,
-    "wd" => 1e-3
-    )
+CairoMakie.save("$outpath/aggregated_scores_high_vs_low_CPHDNN_LGN.pdf",fig)
+
 
 outs, survts, surves = validate_cphdnn(params, folds;device = cpu)
 

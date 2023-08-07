@@ -230,21 +230,38 @@ end
 ### Cox Proportional Hazards
 ### Deep Neural Network CPH
 ### TRAIN COXPH 
-function cox_nll(mdl, X, Y_e, NE)
+function cox_nll(t, e, out)
     ### data already sorted
     # sorted_ids = sortperm(t)
     # E = e[sorted_ids]
-    OUT = vec(mdl(X))
+    # OUT = out[sorted_ids]
     uncensored_likelihood = 0
-    for (x_i, e_i) in enumerate(Y_e)
+    for (x_i, e_i) in enumerate(E)
         if e_i == 1
-            log_risk = log(sum(ℯ .^ OUT[1:x_i+1]))
+            log_risk = log(sum(ℯ .^ OUT[1:x_i]))
             uncensored_likelihood += OUT[x_i] - log_risk    
         end 
     end 
-    loss = - uncensored_likelihood * NE
+    loss = - uncensored_likelihood / sum(E .== 1)
     return loss
 end 
+
+function cox_nll(OUT, E)
+    ### data already sorted
+    # sorted_ids = sortperm(t)
+    # E = e[sorted_ids]
+    # OUT = out[sorted_ids]
+    uncensored_likelihood = 0
+    for (x_i, e_i) in enumerate(E)
+        if e_i == 1
+            log_risk = log(sum(ℯ .^ OUT[1:x_i]))
+            uncensored_likelihood += OUT[x_i] - log_risk    
+        end 
+    end 
+    loss = - uncensored_likelihood / sum(E .== 1)
+    return loss
+end 
+
 function build_cphdnn(params;device =gpu)
     mdl = Flux.Chain(Flux.Dense(params["insize"], params["hl1_size"], relu), 
     Flux.Dense(params["hl1_size"], params["hl2_size"], relu), 
@@ -263,8 +280,6 @@ function cox_nll_vec(mdl, X, Y_e, Ne_frac)
     neg_likelihood = - sum(censored_likelihood) * Ne_frac
     return neg_likelihood
 end 
-
-
 function l2_penalty(model)
     l2_sum = 0
     for wm in model
@@ -310,7 +325,7 @@ function split_train_test(X::Matrix, Y_t::Vector,Y_e::Vector, case_ids::Vector; 
     end
     return folds 
 end 
-lossf(mdl, X, Y_e, NE, wd) = cox_nll(mdl, X, Y_e, NE) + wd * l2_penalty(mdl)
+lossf(mdl, X, Y_e, NE, wd) = cox_nll_vec(mdl, X, Y_e, NE) + wd * l2_penalty(mdl)
     
 function train_cphdnn!(mdl,X_train, Y_t_train, Y_e_train, X_test, Y_t_test, Y_e_test;nsteps=20_000,wd=1e-3)
     mdl_opt = Flux.ADAM(1e-3)
@@ -326,11 +341,8 @@ function train_cphdnn!(mdl,X_train, Y_t_train, Y_e_train, X_test, Y_t_test, Y_e_
         push!(loss_tr, lossval_tr)
         push!(loss_tst, lossval_tst)
         if step % 1000==0 || step == 1 
-            #push!(c_ind_tr, concordance_index(vec(mdl(X_train)), Y_t_train, Y_e_train))
-            #push!(c_ind_tst, concordance_index(vec(mdl(X_test)), Y_t_test, Y_e_test))
-            push!(c_ind_tr, c_index_dev(cpu(Y_t_train), cpu(Y_e_train), vec(cpu(mdl(X_train))) ))
-            push!(c_ind_tst, c_index_dev(cpu(Y_t_test), cpu(Y_e_test), vec(cpu(mdl(X_test))) ))
-            
+            push!(c_ind_tr, concordance_index(vec(mdl(X_train)), Y_t_train, Y_e_train))
+            push!(c_ind_tst, concordance_index(vec(mdl(X_test)), Y_t_test, Y_e_test))
             println("$step TRAIN c_ind: $(round(c_ind_tr[end], digits = 3)) loss: $(round(loss_tr[end], digits =3)), TEST c_ind: $(round(c_ind_tst[end],digits =3)) loss: $(round(loss_tst[end], digits = 3))")
         end
         ps = Flux.params(mdl)
@@ -342,7 +354,7 @@ function train_cphdnn!(mdl,X_train, Y_t_train, Y_e_train, X_test, Y_t_test, Y_e_
     return loss_tr, loss_tst, c_ind_tr, c_ind_tst
 end 
 
-function validate_cphdnn(params, folds; device = gpu)
+function validate_cphdnn(params, folds;)
     nfolds = size(folds)[1]
     outs = []
     survts = []
@@ -350,19 +362,21 @@ function validate_cphdnn(params, folds; device = gpu)
     for foldn in 1:nfolds 
         fold = folds[foldn]
 
-        sorted_ids = device(sortperm(fold["Y_t_train"]))
-        X_train = device(Matrix(fold["X_train"][sorted_ids,:]'))
-        Y_t_train = device(fold["Y_t_train"][sorted_ids])
-        Y_e_train = device(fold["Y_e_train"][sorted_ids])
+        sorted_ids = reverse(sortperm(fold["Y_t_train"]))
+        X_train = gpu(Matrix(fold["X_train"][sorted_ids,:]'))
+        Y_t_train = gpu(fold["Y_t_train"][sorted_ids])
+        Y_e_train = gpu(fold["Y_e_train"][sorted_ids])
 
 
-        sorted_ids = device(sortperm(fold["Y_t_test"]))
-        X_test = device(Matrix(fold["X_test"][sorted_ids,:]'))
-        Y_t_test = device(fold["Y_t_test"][sorted_ids])
-        Y_e_test = device(fold["Y_e_test"][sorted_ids])
+        sorted_ids = reverse(gpu(sortperm(fold["Y_t_test"])))
+        X_test = gpu(Matrix(fold["X_test"][sorted_ids,:]'))
+        Y_t_test = gpu(fold["Y_t_test"][sorted_ids])
+        Y_e_test = gpu(fold["Y_e_test"][sorted_ids])
+
+        mdl_opt = Flux.ADAM(1e-4)
         
-        mdl = build_cphdnn(params;device = device)    
-        loss_tr, loss_vld, c_ind_tr, c_ind_vld = train_cphdnn!(mdl, X_train, Y_t_train, Y_e_train, X_test, Y_t_test, Y_e_test;nsteps =params["nbsteps"],wd=params["wd"])
+        mdl = build_cphdnn(params)    
+        loss_tr, loss_vld, c_ind_tr, c_ind_vld = train_cphdnn!(mdl, X_train, Y_t_train, Y_e_train, X_test, Y_t_test, Y_e_test;nsteps =params["nbsteps"],wd=parmas["wd"])
         push!(outs, vec(cpu(mdl(X_test))))
         push!(survts, cpu(Y_t_test))
         push!(surves, cpu(Y_e_test))
@@ -376,12 +390,12 @@ function validate_cphdnn(params, folds; device = gpu)
         CairoMakie.save("$outpath/training_curve_loss_fold_$foldn.pdf",fig)
 
         fig = Figure();
-        ax = Axis(fig[1,1],xlabel = "Nb. of gradient steps", ylabel ="Concordance index", limits = (0,params["nbsteps"],0.5,1))
-        lines!(ax, vcat([1], collect(1000:1000:params["nbsteps"])), Vector{Float32}(c_ind_tr),color = "blue",label = "training")
-        lines!(ax, vcat([1], collect(1000:1000:params["nbsteps"])), Vector{Float32}(c_ind_vld),color = "orange",label = "test")
+        ax = Axis(fig[1,1],xlabel = "Nb. of gradient steps", ylabel ="Concordance index", limits = (0,nbsteps,0.5,1))
+        lines!(ax, vcat([1], collect(1000:1000:nbsteps)), Vector{Float32}(c_ind_tr),color = "blue",label = "training")
+        lines!(ax, vcat([1], collect(1000:1000:nbsteps)), Vector{Float32}(c_ind_vld),color = "orange",label = "test")
         axislegend(ax, position = :rb)
         fig
         CairoMakie.save("$outpath/training_curve_c_index_fold_$foldn.pdf",fig)
     end
-    return vcat(outs), vcat(survts), vcat(surves)
+    return outs, survts, surves
 end 
