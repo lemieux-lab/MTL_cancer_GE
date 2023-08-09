@@ -304,6 +304,39 @@ function concordance_index(scores, survt, surve)
     end
     return c 
 end
+
+function c_index_dev(T,E,S)
+    concordant = 0
+    discordant = 0
+    tied_risk = 0
+    numerator = 0
+    denominator = 0
+
+    n = length(S)
+    tied_tol = 1e-8
+    for i in 1:n
+        if E[i] == 1
+            for j in i+1:n 
+            # concordant
+            if S[j] < S[i]
+                concordant += 1
+                numerator += 1
+                denominator += 1
+            elseif S[j] > S[i]
+                discordant += 1
+                denominator += 1
+            else
+                numerator += 0.5
+                denominator += 1
+            end 
+            # discordant 
+            # tied 
+            end  
+        end 
+    end 
+    return numerator / denominator, concordant, discordant
+end
+
 function split_train_test(X::Matrix, Y_t::Vector,Y_e::Vector, case_ids::Vector; nfolds = 10)
     folds = Array{Dict, 1}(undef, nfolds)
     nsamples = size(X)[1]
@@ -320,8 +353,9 @@ function split_train_test(X::Matrix, Y_t::Vector,Y_e::Vector, case_ids::Vector; 
         Y_t_test = Y_t[tst_ids]
         Y_e_test = Y_e[tst_ids]
 
-        folds[i] = Dict("tr_ids"=>case_ids[tr_ids], "X_train"=>X_train,"Y_t_train"=>Y_t_train, "Y_e_train"=>Y_e_train,
-                        "tst_ids"=>case_ids[tst_ids], "X_test"=>X_test, "Y_t_test"=>Y_t_test, "Y_e_test"=>Y_e_test)
+        folds[i] = Dict("foldn"=> i, "train_ids"=>tr_ids, "test_ids"=>case_ids[tst_ids],
+                        "train_case_ids"=>case_ids[tr_ids], "train_x"=>X_train,"Y_t_train"=>Y_t_train, "Y_e_train"=>Y_e_train,
+                        "tst_case_ids"=>case_ids[tst_ids], "test_x"=>X_test, "Y_t_test"=>Y_t_test, "Y_e_test"=>Y_e_test)
     end
     return folds 
 end 

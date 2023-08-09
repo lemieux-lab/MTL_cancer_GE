@@ -125,6 +125,11 @@ struct mtl_AE
     clf::dnn
 end 
 
+struct mtl_cph_AE
+    ae::AE_model 
+    cph::dnn
+end 
+
 ###### Regularisation functions 
 function l2_penalty(model::logistic_regression)
     return sum(abs2, model.model.weight)
@@ -207,11 +212,26 @@ function build(model_params)
         clf_lossf = crossentropy_l2
         clf = dnn(clf_chain, clf_opt, clf_lossf)
         model = mtl_AE(AE, clf)
+    elseif model_params["model_type"] == "mtl_cph_ae"
+        AE = AE_model(model_params)
+        cph_chain = gpu(Flux.Chain(
+        AE.encoder...,
+        Flux.Dense(model_params["dim_redux"], model_params["cph_hl_size"], relu), 
+        Flux.Dense(model_params["cph_hl_size"], model_params["cph_hl_size"], relu), 
+        Flux.Dense(model_params["cph_hl_size"], 1, identity)))
+        cph_opt = Flux.ADAM(model_params["lr_cph"])
+        cph_lossf = cox_l2
+        cph = dnn(cph_chain, cph_opt, cph_lossf)
+        model = mtl_cph_AE(AE, cph)
     end 
    
     return model 
 end
 
+function cox_l2(mdl, X, Y_e, NE_frac, wd)
+    
+    return cox_nll_vec(mdl,X,Y_e, NE_frac) + wd * l2_penalty(mdl) 
+end
 ###### Train loop functions
 function train!(model::AE_model, fold;nepochs = 500, batchsize = 500, wd = 1e-6)
     ## Vanilla Auto-Encoder training function 
@@ -454,22 +474,26 @@ end
 function to_cpu(model::mtl_AE)
     return mtl_AE(cpu(model.ae), cpu(model.clf))
 end 
+function to_cpu(model::mtl_cph_AE)
+    return mtl_cph_AE(cpu(model.ae), cpu(model.cph))
+end 
+
 
 # define dump call back 
 function dump_model_cb(dump_freq, labels; export_type = ".png")
-    return (model, tr_metrics, params, iter::Int, fold) -> begin 
+    return (model, tr_metrics, params_dict, iter::Int, fold) -> begin 
         # check if end of epoch / start / end 
-        if iter % dump_freq == 0 || iter == 0 || iter == params["nepochs"]
+        if iter % dump_freq == 0 || iter == 0 || iter == params_dict["nepochs"]
             # saves model
-            bson("RES/$(params["session_id"])/$(params["modelid"])/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
+            bson("RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
             # plot learning curve
-            lr_fig_outpath = "RES/$(params["session_id"])/$(params["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
-            plot_learning_curves(tr_metrics, params, lr_fig_outpath)
+            lr_fig_outpath = "RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
+            plot_learning_curves(tr_metrics, params_dict, lr_fig_outpath)
             # plot embedding
             X_tr = cpu(model.ae.encoder(gpu(fold["train_x"]')))
             infos = labels[fold["train_ids"]]
-            emb_fig_outpath = "RES/$(params["session_id"])/$(params["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))/model_$(zpad(iter)).$export_type"
-            plot_embed(X_tr, infos, params, emb_fig_outpath)
+            emb_fig_outpath = "RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))/model_$(zpad(iter)).$export_type"
+            plot_embed(X_tr, infos, params_dict, emb_fig_outpath)
  
         end 
     end 

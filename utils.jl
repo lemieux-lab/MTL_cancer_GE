@@ -71,3 +71,26 @@ function plot_learning_curves(learning_curves, assoc_ae_params, fig_outpath)
     Label(fig[3,:], "𝗣𝗮𝗿𝗮𝗺𝗲𝘁𝗲𝗿𝘀 $(stringify(assoc_ae_params))")
     CairoMakie.save(fig_outpath, fig)
 end 
+
+function plot_learning_curves(learning_curves, params_dict::Dict, fig_outpath)
+    # learning curves 
+    lr_df = DataFrame(:step => collect(1:length(learning_curves)), :ae_loss=>[i[1] for i in learning_curves], :ae_cor => [i[2] for i in learning_curves],
+    :cph_loss=>[i[3] for i in learning_curves], :cind_tr=> [i[4] for i in learning_curves],
+    :ae_loss_test=>[i[5] for i in learning_curves], :ae_cor_test => [i[6] for i in learning_curves],
+    :cph_loss_test=>[i[7] for i in learning_curves], :cind_test=> [i[8] for i in learning_curves])
+    fig = Figure()
+    fig[1,1] = Axis(fig, xlabel = "steps", ylabel = "Auto-Encoder MSE loss")
+    ae_loss_tr = lines!(fig[1,1], lr_df[:,"step"], lr_df[:,"ae_loss"], color = "red")
+    fig[2,1] = Axis(fig, xlabel = "steps", ylabel = "CPH Cox-Negative Likelihood")
+    cph_loss_tr = lines!(fig[2,1], lr_df[:,"step"], lr_df[:,"cph_loss"])
+    fig[1,2] = Axis(fig, xlabel = "steps", ylabel = "Auto-Encoder \tPearson Corr.")
+    ae_cort_tr = lines!(fig[1,2], lr_df[:,"step"], lr_df[:,"ae_cor"], color = "red")
+    fig[2,2] = Axis(fig, xlabel = "steps", ylabel = "CPH Concordance index")
+    cind_tr = lines!(fig[2,2], lr_df[:,"step"], lr_df[:,"cind_tr"]  )
+    ae_loss_test = lines!(fig[1,1], lr_df[:,"step"], lr_df[:,"ae_loss_test"], color = "red", linestyle = "--")
+    ae_loss = lines!(fig[2,1], lr_df[:,"step"], lr_df[:,"cph_loss_test"], color ="blue", linestyle = "--")
+    ae_loss = lines!(fig[1,2], lr_df[:,"step"], lr_df[:,"ae_cor_test"], color = "red", linestyle = "--")
+    ae_loss = lines!(fig[2,2], lr_df[:,"step"], lr_df[:,"cind_test"] , color ="blue", linestyle = "--")
+    Label(fig[3,:], "𝗣𝗮𝗿𝗮𝗺𝗲𝘁𝗲𝗿𝘀 $(stringify(params_dict)))")
+    CairoMakie.save(fig_outpath, fig)
+end 
