@@ -145,6 +145,7 @@ bson("RES/$(brca_mtcphae_params["session_id"])/$(brca_mtcphae_params["modelid"])
 #function train!(model::mtl_cph_AE, fold, dump_cb, params)
     ## mtliative Auto-Encoder + Classifier NN model training function 
     ## Vanilla Auto-Encoder training function 
+    
     batchsize = brca_mtcphae_params["mb_size"]
     nepochs= brca_mtcphae_params["nepochs"]
     wd = brca_mtcphae_params["wd"]
@@ -253,6 +254,21 @@ cind_test = round(c_index_dev(test_y_t, test_y_e, model.cph.model(gpu(test_x)))[
     end
     return params["tr_acc"]
 #end 
+OUTS = vec(cpu(model.cph.model(gpu(test_x))))
+groups = ["low_risk" for i in 1:length(OUTS)]    
+high_risk = OUTS .> median(OUTS)
+low_risk = OUTS .< median(OUTS)
+median(OUTS)
+end_of_study = 365 * 10
+groups[high_risk] .= "high_risk"
+p_high, x_high, sc1_high, sc2_high = surv_curve(vec(train_y_t)[high_risk], vec(train_y_e)[high_risk]; color = "red")
+p_low, x_low, sc1_low, sc2_low = surv_curve(train_y_t[low_risk], train_y_e[low_risk]; color = "blue")
+
+p_high, x_high, sc1_high, sc2_high = surv_curve(test_y_t[high_risk], test_y_e[high_risk]; color = "red")
+p_low, x_low, sc1_low, sc2_low = surv_curve(test_y_t[low_risk], test_y_e[low_risk]; color = "blue")
+draw(p_high + x_high + p_low + x_low)
+lrt_pval = round(log_rank_test(vec(test_y_t), vec(test_y_e), groups, ["low_risk", "high_risk"]; end_of_study = end_of_study); digits = 5)
+
 ae_loss_test = round(model.ae.lossf(model.ae, gpu(test_x), gpu(test_x), weight_decay = wd), digits = 3)
 ae_cor_test = round(my_cor(vec(gpu(test_x)), vec(model.ae.net(gpu(test_x)))), digits= 3)
 cph_loss_test = round(cox_nll_vec(model.cph.model,gpu(test_x),gpu(test_y_e), NE_frac_tst), digits= 3)

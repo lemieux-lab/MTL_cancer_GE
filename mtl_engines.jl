@@ -218,7 +218,7 @@ function build(model_params)
         AE.encoder...,
         Flux.Dense(model_params["dim_redux"], model_params["cph_hl_size"], relu), 
         Flux.Dense(model_params["cph_hl_size"], model_params["cph_hl_size"], relu), 
-        Flux.Dense(model_params["cph_hl_size"], 1, identity)))
+        Flux.Dense(model_params["cph_hl_size"], 1, sigmoid)))
         cph_opt = Flux.ADAM(model_params["lr_cph"])
         cph_lossf = cox_l2
         cph = dnn(cph_chain, cph_opt, cph_lossf)
