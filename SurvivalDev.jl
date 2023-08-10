@@ -288,9 +288,9 @@ function l2_penalty(model)
     return l2_sum
 end
 function concordance_index(T, E, S)
-    concordant_pairs = S .< S'
+    concordant_pairs = S .> S'
     admissable_pairs = T .< T'
-    discordant_pairs = S .> S'
+    discordant_pairs = S .< S'
     concordant = sum(E .* (admissable_pairs .* concordant_pairs))
     discordant = sum(E .* (admissable_pairs .* discordant_pairs) )
     C_index = concordant / (concordant + discordant)

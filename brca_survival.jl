@@ -219,7 +219,7 @@ cind_test = round(c_index_dev(test_y_t, test_y_e, model.cph.model(gpu(test_x)))[
     "RES/$(brca_mtcphae_params["session_id"])/$(brca_mtcphae_params["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
 
     learning_curve = []
-    for iter in ProgressBar(1:nepochs)
+    for iter in 1:nepochs#ProgressBar(1:nepochs)
         cursor = (iter -1)  % nminibatches + 1
         mb_ids = collect((cursor -1) * batchsize + 1: min(cursor * batchsize, nsamples))
         X_ = gpu(train_x[:,mb_ids])
@@ -251,11 +251,14 @@ cind_test = round(c_index_dev(test_y_t, test_y_e, model.cph.model(gpu(test_x)))[
         cph_loss_test = round(model.cph.lossf(model.cph.model,gpu(test_x),gpu(test_y_e), NE_frac_tst, brca_mtcphae_params["wd"]), digits= 3)
         cind_test = round(concordance_index(gpu(test_y_t), gpu(test_y_e), model.cph.model(gpu(test_x)))[1], digits =3)
         push!(learning_curve, (ae_loss, ae_cor, cph_loss, cind_tr, ae_loss_test, ae_cor_test, cph_loss_test, cind_test))
-        #println("$iter\t TRAIN AE-loss $(round(ae_loss,digits =3)) \t AE-cor: $(round(ae_cor, digits = 3))\t cph-loss: $(round(cph_loss,digits =3)) \t cph-cind: $(round(cind_tr,digits =3))\t TEST AE-loss $(round(ae_loss_test,digits =3)) \t AE-cor: $(round(ae_cor_test, digits = 3))\t cph-loss: $(round(cph_loss_test,digits =3)) \t cph-cind: $(round(cind_test,digits =3))")
+        println("$iter\t TRAIN AE-loss $(round(ae_loss,digits =3)) \t AE-cor: $(round(ae_cor, digits = 3))\t cph-loss: $(round(cph_loss,digits =3)) \t cph-cind: $(round(cind_tr,digits =3))\t TEST AE-loss $(round(ae_loss_test,digits =3)) \t AE-cor: $(round(ae_cor_test, digits = 3))\t cph-loss: $(round(cph_loss_test,digits =3)) \t cph-cind: $(round(cind_test,digits =3))")
         dump_cb_brca(model, learning_curve, brca_mtcphae_params, iter, fold)
 
     end
     return params["tr_acc"]
+c_index_dev(gpu(test_y_t), gpu(test_y_e), model.cph.model(gpu(test_x)))[1]
+concordance_index(gpu(test_y_t), gpu(test_y_e), model.cph.model(gpu(test_x)))[1]
+
 model.cph.model
 #end 
 OUTS = vec(cpu(model.cph.model(gpu(test_x))))
