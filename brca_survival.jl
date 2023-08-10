@@ -116,11 +116,11 @@ brca_mtae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floo
 dump_cb_brca = dump_model_cb(50*Int(floor(brca_mtae_params["nsamples"] / brca_mtae_params["mb_size"])), labs_appdf(brca_MTAE.targets), export_type = "pdf")
 
 validate!(brca_mtae_params, brca_MTAE, dump_cb_brca)
-
+nfolds = 5
 ##### MTAE for survival prediction
 brca_mtcphae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
-"model_type" => "mtl_cph_ae", "session_id" => session_id, "nsamples" => length(brca_MTAE.rows),
-"insize" => length(brca_prediction.cols), "ngenes" => length(brca_prediction.cols), "nclasses"=> length(unique(brca_prediction.subgroups)), 
+"model_type" => "mtl_cph_ae", "session_id" => session_id, "nsamples_train" => length(brca_prediction.rows) - Int(round(length(brca_prediction.rows) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.rows) / nfolds)),
+"nsamples" => length(brca_prediction.rows) , "insize" => length(brca_prediction.cols), "ngenes" => length(brca_prediction.cols), "nclasses"=> length(unique(brca_prediction.subgroups)), 
 "nfolds" => 5,  "nepochs" => 10_000, "mb_size" => 50, "lr_ae" => 1e-5, "lr_clf" => 1e-4,  "wd" => 1e-1, "dim_redux" => 17, "enc_nb_hl" => 2, 
 "enc_hl_size" => 25, "dec_nb_hl" => 2, "dec_hl_size" => 25, "clf_nb_hl" => 2, "clf_hl_size"=> 25,
 "lr_cph" => 1e-5, "cph_nb_hl" => 2, "cph_hl_size" => 25)
@@ -131,6 +131,8 @@ dump_cb_brca = dump_model_cb(Int(floor(brca_mtcphae_params["nsamples"] / brca_mt
 folds = split_train_test(Matrix(brca_prediction.data), brca_prediction.survt, brca_prediction.surve, brca_prediction.rows;nfolds =5)
 
 fold = folds[1];
+device()
+#device!()
 model = build(brca_mtcphae_params)
 mkdir("RES/$(brca_mtcphae_params["session_id"])/$(brca_mtcphae_params["modelid"])")
 # init results lists 
@@ -217,42 +219,44 @@ cind_test = round(c_index_dev(test_y_t, test_y_e, model.cph.model(gpu(test_x)))[
     "RES/$(brca_mtcphae_params["session_id"])/$(brca_mtcphae_params["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
 
     learning_curve = []
-    for iter in 1:nepochs #ProgressBar(1:nepochs)
+    for iter in ProgressBar(1:nepochs)
         cursor = (iter -1)  % nminibatches + 1
         mb_ids = collect((cursor -1) * batchsize + 1: min(cursor * batchsize, nsamples))
         X_ = gpu(train_x[:,mb_ids])
         ## gradient Auto-Encoder 
         ps = Flux.params(model.ae.net)
         gs = gradient(ps) do
-            model.ae.lossf(model.ae, X_, X_, weight_decay = wd)
+            model.ae.lossf(model.ae, X_, X_, weight_decay = brca_mtcphae_params["wd"])
         end
         Flux.update!(model.ae.opt, ps, gs)
         ## gradient CPH
         
         ps = Flux.params(model.cph.model)
         gs = gradient(ps) do
-            model.cph.lossf(model.cph.model,gpu(train_x),gpu(train_y_e), NE_frac_tr, brca_mtae_params["wd"])
+            
+            model.cph.lossf(model.cph.model,gpu(train_x),gpu(train_y_e), NE_frac_tr, brca_mtcphae_params["wd"])
         end
         Flux.update!(model.cph.opt, ps, gs)
         ae_loss = model.ae.lossf(model.ae, X_, X_, weight_decay = wd)
         #ae_cor = my_cor(vec(train_x), cpu(vec(model.ae.net(gpu(train_x)))))
         ae_cor =  round(my_cor(vec(X_), vec(model.ae.net(gpu(X_)))),digits = 3)
         OUTS = model.cph.model(gpu(train_x))
-        cph_loss = model.cph.lossf(model.cph.model,gpu(train_x),gpu(train_y_e), NE_frac_tr, brca_mtae_params["wd"])
-        cind_tr, cdnt_tr, ddnt_tr  = c_index_dev(train_y_t, train_y_e, OUTS)
+        cph_loss = model.cph.lossf(model.cph.model,gpu(train_x),gpu(train_y_e), NE_frac_tr, brca_mtcphae_params["wd"])
+        cind_tr, cdnt_tr, ddnt_tr  = concordance_index(gpu(train_y_t), gpu(train_y_e), OUTS)
         brca_mtcphae_params["tr_acc"] = cind_tr
         #push!(learning_curve, (ae_loss, ae_cor, cph_loss, cind_tr))
         # save model (bson) every epoch if specified 
         ae_loss_test = round(model.ae.lossf(model.ae, gpu(test_x), gpu(test_x), weight_decay = wd), digits = 3)
         ae_cor_test = round(my_cor(vec(gpu(test_x)), vec(model.ae.net(gpu(test_x)))), digits= 3)
-        cph_loss_test = round(model.cph.lossf(model.cph.model,gpu(test_x),gpu(test_y_e), NE_frac_tst, brca_mtae_params["wd"]), digits= 3)
-        cind_test = round(c_index_dev(test_y_t, test_y_e, model.cph.model(gpu(test_x)))[1], digits =3)
+        cph_loss_test = round(model.cph.lossf(model.cph.model,gpu(test_x),gpu(test_y_e), NE_frac_tst, brca_mtcphae_params["wd"]), digits= 3)
+        cind_test = round(concordance_index(gpu(test_y_t), gpu(test_y_e), model.cph.model(gpu(test_x)))[1], digits =3)
         push!(learning_curve, (ae_loss, ae_cor, cph_loss, cind_tr, ae_loss_test, ae_cor_test, cph_loss_test, cind_test))
-        println("$iter\t TRAIN AE-loss $(round(ae_loss,digits =3)) \t AE-cor: $(round(ae_cor, digits = 3))\t cph-loss: $(round(cph_loss,digits =3)) \t cph-cind: $(round(cind_tr,digits =3))\t TEST AE-loss $(round(ae_loss_test,digits =3)) \t AE-cor: $(round(ae_cor_test, digits = 3))\t cph-loss: $(round(cph_loss_test,digits =3)) \t cph-cind: $(round(cind_test,digits =3))")
+        #println("$iter\t TRAIN AE-loss $(round(ae_loss,digits =3)) \t AE-cor: $(round(ae_cor, digits = 3))\t cph-loss: $(round(cph_loss,digits =3)) \t cph-cind: $(round(cind_tr,digits =3))\t TEST AE-loss $(round(ae_loss_test,digits =3)) \t AE-cor: $(round(ae_cor_test, digits = 3))\t cph-loss: $(round(cph_loss_test,digits =3)) \t cph-cind: $(round(cind_test,digits =3))")
         dump_cb_brca(model, learning_curve, brca_mtcphae_params, iter, fold)
 
     end
     return params["tr_acc"]
+model.cph.model
 #end 
 OUTS = vec(cpu(model.cph.model(gpu(test_x))))
 groups = ["low_risk" for i in 1:length(OUTS)]    
@@ -284,16 +288,7 @@ Flux.update!(model.cph.opt, ps, gs)
 
 model.cph.lossf(model.cph.model(gpu(train_x)), gpu(train_y_e))
 
-function cox_nll_vec(mdl::Flux.Chain, X_, Y_e_, NE_frac)
-    outs = vec(mdl(gpu(X_)))
-    hazard_ratios = exp.(outs)
-    log_risk = log.(cumsum(hazard_ratios))
-    uncensored_likelihood = outs .- log_risk
-    censored_likelihood = uncensored_likelihood .* gpu(Y_e_')
-    #neg_likelihood = - sum(censored_likelihood) / sum(e .== 1)
-    neg_likelihood = - sum(censored_likelihood) * NE_frac
-    return neg_likelihood
-end 
+
 
 # train 
 # init 

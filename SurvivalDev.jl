@@ -268,18 +268,18 @@ function build_cphdnn(params;device =gpu)
     Flux.Dense(params["hl2_size"], 1, params["acto"]));
     return device(mdl) 
 end 
-function cox_nll_vec(mdl, X, Y_e, Ne_frac)
-    ### working 
-    ### weights all over the place (uncomputable loss)
-    outs = vec(mdl(X))
+
+function cox_nll_vec(mdl::Flux.Chain, X_, Y_e_, NE_frac)
+    outs = vec(mdl(gpu(X_)))
     hazard_ratios = exp.(outs)
     log_risk = log.(cumsum(hazard_ratios))
     uncensored_likelihood = outs .- log_risk
-    censored_likelihood = uncensored_likelihood .* Y_e
+    censored_likelihood = uncensored_likelihood .* gpu(Y_e_')
     #neg_likelihood = - sum(censored_likelihood) / sum(e .== 1)
-    neg_likelihood = - sum(censored_likelihood) * Ne_frac
+    neg_likelihood = - sum(censored_likelihood) * NE_frac
     return neg_likelihood
 end 
+
 function l2_penalty(model)
     l2_sum = 0
     for wm in model
@@ -287,22 +287,14 @@ function l2_penalty(model)
     end 
     return l2_sum
 end
-function concordance_index(scores, survt, surve)
-    function helper(S,T,E)
-        #vector computation of c_index 
-        n = length(S)
-        concordant_pairs = S .> S'
-        tied_pairs = vec(sum(S .== S', dims = 1)') - ones(length(S))
-        admissable_pairs = T .< T'
-        c_ind = sum(E' .* admissable_pairs .* concordant_pairs) + 0.5 * sum(tied_pairs)
-        c_ind = c_ind / sum(E .* vec(sum(admissable_pairs, dims = 1)') .+ sum(tied_pairs))
-        return c_ind 
-    end 
-    c = helper(scores,survt,surve)
-    if c < 0.5 
-        c = helper(-scores, survt,surve)
-    end
-    return c 
+function concordance_index(T, E, S)
+    concordant_pairs = S .< S'
+    admissable_pairs = T .< T'
+    discordant_pairs = S .> S'
+    concordant = sum(E .* (admissable_pairs .* concordant_pairs))
+    discordant = sum(E .* (admissable_pairs .* discordant_pairs) )
+    C_index = concordant / (concordant + discordant)
+    return C_index, concordant, discordant
 end
 
 function c_index_dev(T,E,S)
@@ -317,20 +309,22 @@ function c_index_dev(T,E,S)
     for i in 1:n
         if E[i] == 1
             for j in i+1:n 
-            # concordant
-            if S[j] < S[i]
-                concordant += 1
-                numerator += 1
-                denominator += 1
-            elseif S[j] > S[i]
-                discordant += 1
-                denominator += 1
-            else
-                numerator += 0.5
-                denominator += 1
-            end 
-            # discordant 
-            # tied 
+            if T[i] < T[j]
+                # concordant
+                if S[j] < S[i]
+                    concordant += 1
+                    numerator += 1
+                    denominator += 1
+                elseif S[j] > S[i]
+                    discordant += 1
+                    denominator += 1
+                else
+                    numerator += 0.5
+                    denominator += 1
+                end 
+                # discordant 
+                # tied 
+                end
             end  
         end 
     end 
