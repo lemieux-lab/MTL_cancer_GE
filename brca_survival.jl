@@ -130,7 +130,7 @@ dump_cb_brca = dump_model_cb(Int(floor(brca_mtcphae_params["nsamples"] / brca_mt
 #validate!(brca_mtcphae_params, brca_prediction, dump_cb_brca)
 folds = split_train_test(Matrix(brca_prediction.data), brca_prediction.survt, brca_prediction.surve, brca_prediction.rows;nfolds =5)
 
-fold = folds[1];
+fold = folds[3];
 device()
 #device!()
 model = build(brca_mtcphae_params)
@@ -219,7 +219,7 @@ cind_test = round(c_index_dev(test_y_t, test_y_e, model.cph.model(gpu(test_x)))[
     "RES/$(brca_mtcphae_params["session_id"])/$(brca_mtcphae_params["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
 
     learning_curve = []
-    for iter in 1:nepochs#ProgressBar(1:nepochs)
+    for iter in 1:30_000#ProgressBar(1:nepochs)
         cursor = (iter -1)  % nminibatches + 1
         mb_ids = collect((cursor -1) * batchsize + 1: min(cursor * batchsize, nsamples))
         X_ = gpu(train_x[:,mb_ids])

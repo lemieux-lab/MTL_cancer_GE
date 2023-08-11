@@ -102,7 +102,7 @@ function AE_model(params::Dict)
     enc_hl1 = gpu(Flux.Dense(params["ngenes"], params["enc_hl_size"], relu))
     enc_hl2 = gpu(Flux.Dense(params["enc_hl_size"], params["enc_hl_size"], relu))
 
-    redux_layer = gpu(Flux.Dense(params["enc_hl_size"], params["dim_redux"], identity))
+    redux_layer = gpu(Flux.Dense(params["enc_hl_size"], params["dim_redux"], relu))
     
     dec_hl1 = gpu(Flux.Dense(params["dim_redux"], params["dec_hl_size"], relu))
     dec_hl2 = gpu(Flux.Dense(params["dec_hl_size"], params["dec_hl_size"], relu))
@@ -252,7 +252,7 @@ function build(model_params)
         Flux.Dense(model_params["cph_hl_size"], 1,sigmoid)))
         cph_opt = Flux.ADAM(model_params["lr_cph"])
         cph = dnn(cph_chain, cph_opt, cox_l2)
-        model = mtl_cph_AE(AE, cp, AE.encoder)
+        model = mtl_cph_AE(AE, cph, AE.encoder)
     end 
    
     return model 
@@ -502,10 +502,10 @@ function bootstrap(acc_function, tlabs, plabs; bootstrapn = 1000)
 end 
 ####### CAllback functions
 function to_cpu(model::mtl_AE)
-    return mtl_AE(cpu(model.ae), cpu(model.clf))
+    return mtl_AE(cpu(model.ae), cpu(model.clf), cpu(model.encoder))
 end 
 function to_cpu(model::mtl_cph_AE)
-    return mtl_cph_AE(cpu(model.ae), cpu(model.cph))
+    return mtl_cph_AE(cpu(model.ae), cpu(model.cph), cpu(model.encoder))
 end 
 function to_cpu(model::enccphdnn)
     return enccphdnn(cpu(model.net), cpu(model.encoder), model.opt, model.lossf)
