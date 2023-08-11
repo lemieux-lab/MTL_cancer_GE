@@ -280,13 +280,7 @@ function cox_nll_vec(mdl::Flux.Chain, X_, Y_e_, NE_frac)
     return neg_likelihood
 end 
 
-function l2_penalty(model)
-    l2_sum = 0
-    for wm in model
-        l2_sum += sum(abs2, wm.weight)
-    end 
-    return l2_sum
-end
+
 function concordance_index(T, E, S)
     concordant_pairs = S .> S'
     admissable_pairs = T .< T'

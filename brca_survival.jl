@@ -121,7 +121,7 @@ nfolds = 5
 brca_mtcphae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "mtl_cph_ae", "session_id" => session_id, "nsamples_train" => length(brca_prediction.rows) - Int(round(length(brca_prediction.rows) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.rows) / nfolds)),
 "nsamples" => length(brca_prediction.rows) , "insize" => length(brca_prediction.cols), "ngenes" => length(brca_prediction.cols), "nclasses"=> length(unique(brca_prediction.subgroups)), 
-"nfolds" => 5,  "nepochs" => 10_000, "mb_size" => 50, "lr_ae" => 1e-5, "lr_clf" => 1e-4,  "wd" => 1e-1, "dim_redux" => 17, "enc_nb_hl" => 2, 
+"nfolds" => 5,  "nepochs" => 10_000, "mb_size" => 50, "lr_ae" => 1e-5, "lr_clf" => 1e-4,  "wd" => 1e-1, "dim_redux" => 2, "enc_nb_hl" => 2, 
 "enc_hl_size" => 25, "dec_nb_hl" => 2, "dec_hl_size" => 25, "clf_nb_hl" => 2, "clf_hl_size"=> 25,
 "lr_cph" => 1e-5, "cph_nb_hl" => 2, "cph_hl_size" => 25)
 

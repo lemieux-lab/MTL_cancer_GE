@@ -72,7 +72,39 @@ function plot_learning_curves(learning_curves, assoc_ae_params, fig_outpath)
     CairoMakie.save(fig_outpath, fig)
 end 
 
+struct EncCPHDNN_LearningCurve
+    tr_loss::Array
+    tr_c_index::Array
+    tst_loss::Array
+    tst_c_index::Array
+    
+end 
+function EncCPHDNN_LearningCurve(learning_curve::Array)
+    return EncCPHDNN_LearningCurve([i[1] for i in learning_curve], 
+    [i[2] for i in learning_curve],
+    [i[3] for i in learning_curve],
+    [i[4] for i in learning_curve])
+end 
+
+function plot_learning_curves(LC::EncCPHDNN_LearningCurve, model_params::Dict, fig_outpath)
+    # learning curves 
+    lr_df = DataFrame(:step => collect(1:length(LC.tr_loss)),
+    :tr_loss=>LC.tr_loss, :tr_c_index => LC.tr_c_index, 
+    :tst_loss=>LC.tst_loss, :tst_c_index => LC.tst_c_index)
+    fig = Figure()
+    fig[1,1] = Axis(fig, xlabel = "steps", ylabel = "Cox-Negative Likelihood loss")
+    cox_loss = lines!(fig[1,1], lr_df[:,"step"], lr_df[:,"tr_loss"], color = "blue")
+    fig[2,1] = Axis(fig, xlabel = "steps", ylabel = "Concordance index")
+    c_index = lines!(fig[2,1], lr_df[:,"step"], lr_df[:,"tr_c_index"], color = "blue")
+    ae_loss = lines!(fig[1,1], lr_df[:,"step"], lr_df[:,"tst_loss"], color ="blue", linestyle = "--")
+    ae_loss = lines!(fig[2,1], lr_df[:,"step"], lr_df[:,"tst_c_index"], color = "blue", linestyle = "--")
+    Label(fig[3,:], "𝗣𝗮𝗿𝗮𝗺𝗲𝘁𝗲𝗿𝘀 $(stringify(model_params))")
+    CairoMakie.save(fig_outpath, fig)
+end
+
+
 function plot_learning_curves(learning_curves, params_dict::Dict, fig_outpath)
+    
     # learning curves 
     lr_df = DataFrame(:step => collect(1:length(learning_curves)), :ae_loss=>[i[1] for i in learning_curves], :ae_cor => [i[2] for i in learning_curves],
     :cph_loss=>[i[3] for i in learning_curves], :cind_tr=> [i[4] for i in learning_curves],

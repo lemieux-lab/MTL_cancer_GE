@@ -123,14 +123,29 @@ end
 struct mtl_AE
     ae::AE_model 
     clf::dnn
+    encoder::Chain
 end 
 
 struct mtl_cph_AE
     ae::AE_model 
     cph::dnn
+    encoder::Chain
+end 
+struct enccphdnn
+    net::Chain
+    encoder::Chain
+    opt
+    lossf
 end 
 
 ###### Regularisation functions 
+function l2_penalty(model::Flux.Chain)
+    l2_sum = 0
+    for wm in model
+        l2_sum += sum(abs2, wm.weight)
+    end 
+    return l2_sum
+end
 function l2_penalty(model::logistic_regression)
     return sum(abs2, model.model.weight)
 end 
@@ -190,6 +205,12 @@ function build(model_params)
         opt = Flux.ADAM(model_params["lr"])
         lossf = crossentropy_l2
         model = dnn(chain, opt, lossf)
+    elseif model_params["model_type"] == "cphdnn"
+        chain = gpu(Chain(Dense(model_params["insize"] , model_params["cph_hl_size"], relu),
+        Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], relu),
+        Dense(model_params["cph_hl_size"] , 1, sigmoid)))
+        opt = Flux.ADAM(model_params["cph_lr"])
+        model = dnn(chain, opt, cox_l2)
     elseif model_params["model_type"] == "mtl_FE"
         FE = FE_model(model_params)
         data_FE = DataFE("fe_data", model_params["fe_data"], collect(1:model_params["nsamples"]),collect(1:model_params["ngenes"]) )
@@ -201,6 +222,16 @@ function build(model_params)
         clf_lossf = crossentropy_l2
         clf = dnn(clf_chain, clf_opt, clf_lossf)
         model = mtl_FE(FE, data_FE , clf)
+    elseif model_params["model_type"] == "enccphdnn"
+        enc_hl1 = gpu(Flux.Dense(model_params["insize"], model_params["enc_hl_size"], relu))
+        enc_hl2 = gpu(Flux.Dense(model_params["enc_hl_size"], model_params["enc_hl_size"], relu))
+        redux_layer = gpu(Flux.Dense(model_params["enc_hl_size"], model_params["dim_redux"], identity))
+        encoder = gpu(Flux.Chain(enc_hl1, enc_hl2, redux_layer))
+        chain = gpu(Flux.Chain(encoder..., Dense(model_params["dim_redux"] , model_params["cph_hl_size"], relu),
+        Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], relu),
+        Dense(model_params["cph_hl_size"] , 1, sigmoid)))
+        opt = Flux.ADAM(model_params["cph_lr"])
+        model = enccphdnn(chain, encoder, opt, cox_l2)
     elseif model_params["model_type"] == "mtl_ae"
         AE = AE_model(model_params)
         clf_chain = gpu(Flux.Chain(
@@ -211,7 +242,7 @@ function build(model_params)
         clf_opt = Flux.ADAM(model_params["lr_clf"])
         clf_lossf = crossentropy_l2
         clf = dnn(clf_chain, clf_opt, clf_lossf)
-        model = mtl_AE(AE, clf)
+        model = mtl_AE(AE, clf, AE.encoder)
     elseif model_params["model_type"] == "mtl_cph_ae"
         AE = AE_model(model_params)
         cph_chain = gpu(Flux.Chain(
@@ -221,7 +252,7 @@ function build(model_params)
         Flux.Dense(model_params["cph_hl_size"], 1,sigmoid)))
         cph_opt = Flux.ADAM(model_params["lr_cph"])
         cph = dnn(cph_chain, cph_opt, cox_l2)
-        model = mtl_cph_AE(AE, cph)
+        model = mtl_cph_AE(AE, cp, AE.encoder)
     end 
    
     return model 
@@ -476,7 +507,9 @@ end
 function to_cpu(model::mtl_cph_AE)
     return mtl_cph_AE(cpu(model.ae), cpu(model.cph))
 end 
-
+function to_cpu(model::enccphdnn)
+    return enccphdnn(cpu(model.net), cpu(model.encoder), model.opt, model.lossf)
+end 
 
 # define dump call back 
 function dump_model_cb(dump_freq, labels; export_type = ".png")
@@ -489,7 +522,7 @@ function dump_model_cb(dump_freq, labels; export_type = ".png")
             lr_fig_outpath = "RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
             plot_learning_curves(tr_metrics, params_dict, lr_fig_outpath)
             # plot embedding
-            X_tr = cpu(model.ae.encoder(gpu(fold["train_x"]')))
+            X_tr = cpu(model.encoder(gpu(fold["train_x"]')))
             infos = labels[fold["train_ids"]]
             emb_fig_outpath = "RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))/model_$(zpad(iter)).$export_type"
             plot_embed(X_tr, infos, params_dict, emb_fig_outpath)
