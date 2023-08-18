@@ -188,3 +188,66 @@ function run_tsne_on_GDC(GDC_data, tissues)
 
 end 
 
+function list_ages(case_ids, ages)
+    out = Dict()
+    for (case_id,age) in zip(case_ids,ages)
+        if age != "'--"
+            dat = parse(Int, age)
+        else 
+            dat = 60
+        end 
+        out[case_id] = dat
+    end 
+    return out
+end 
+function list_stages(case_ids, stages)
+    stage_i = Dict()
+    stage_ii = Dict()
+    stage_iii = Dict()
+    stage_iv = Dict()
+    for (case_id, stage) in zip(case_ids, stages)
+        if stage in ["Stage I", "Stage IA", "Stage IB", "Stage IC"]
+            stage_i[case_id] = 1
+            stage_ii[case_id] = 0
+            stage_iii[case_id] = 0
+            stage_iv[case_id] = 0
+        elseif stage in ["Stage II", "Stage IIA", "Stage IIB", "Stage IIC"]
+            stage_i[case_id] = 0
+            stage_ii[case_id] = 1
+            stage_iii[case_id] = 0
+            stage_iv[case_id] = 0
+        elseif stage in ["Stage III", "Stage IIIA", "Stage IIIB", "Stage IIIC"]
+            stage_i[case_id] = 0
+            stage_ii[case_id] = 0
+            stage_iii[case_id] = 1
+            stage_iv[case_id] = 0
+        elseif stage == "Stage IV"
+            stage_i[case_id] = 0
+            stage_ii[case_id] = 0
+            stage_iii[case_id] = 0
+            stage_iv[case_id] = 1   
+        else 
+            stage_i[case_id] = 0
+            stage_ii[case_id] = 0
+            stage_iii[case_id] = 0
+            stage_iv[case_id] = 0   
+        end        
+    end
+    return stage_i, stage_ii, stage_iii, stage_iv        
+end 
+
+function assemble_clinf()
+    BRCA_CLIN = CSV.read("Data/GDC_processed/TCGA_BRCA_clinical_survival.csv", DataFrame)
+    clin_data = CSV.read("Data/GDC_processed/TCGA_BRCA_clinicial_raw.csv", DataFrame, header = 2)
+
+    age_dict = list_ages(BRCA_CLIN[:,"case_id"],BRCA_CLIN[:,"age_at_diagnosis"])
+    tmp = innerjoin(clin_data[:,["Complete TCGA ID","AJCC Stage"]], BRCA_CLIN, on=["Complete TCGA ID"=>"case_submitter_id"], makeunique = true)
+    stage_i_dict, stage_ii_dict, stage_iii_dict,stage_iv_dict = list_stages(tmp[:,"case_id"],clin_data[:,"AJCC Stage"]) 
+    ages = [log10(age_dict[row])  for row in brca_prediction.rows]
+    stage_i = [stage_i_dict[row] for row in brca_prediction.rows]
+    stage_ii = [stage_ii_dict[row] for row in brca_prediction.rows]
+    stage_iii = [stage_iii_dict[row] for row in brca_prediction.rows]
+    stage_iv = [stage_iv_dict[row] for row in brca_prediction.rows]
+    clinf = DataFrame(["case_id"=> brca_prediction.rows, "age"=>ages,"stage_i"=>stage_i,"stage_ii"=>stage_ii,"stage_iii"=>stage_iii,"stage_iv"=>stage_iv])
+    return clinf
+end

@@ -269,12 +269,13 @@ function build_cphdnn(params;device =gpu)
     return device(mdl) 
 end 
 
-function cox_nll_vec(mdl::Flux.Chain, X_, Y_e_, NE_frac)
-    outs = vec(mdl(gpu(X_)))
+function cox_nll_vec(mdl::enccphdnn, X_, X_c_, Y_e_, NE_frac)
+    #outs = vec(mdl.cphdnn(vcat(mdl.encoder(X_), X_c_)))
+    outs = vec(mdl.cphdnn(mdl.encoder(X_)))
     hazard_ratios = exp.(outs)
     log_risk = log.(cumsum(hazard_ratios))
     uncensored_likelihood = outs .- log_risk
-    censored_likelihood = uncensored_likelihood .* gpu(Y_e_')
+    censored_likelihood = uncensored_likelihood .* Y_e_'
     #neg_likelihood = - sum(censored_likelihood) / sum(e .== 1)
     neg_likelihood = - sum(censored_likelihood) * NE_frac
     return neg_likelihood
@@ -344,6 +345,30 @@ function split_train_test(X::Matrix, Y_t::Vector,Y_e::Vector, case_ids::Vector; 
         folds[i] = Dict("foldn"=> i, "train_ids"=>tr_ids, "test_ids"=>case_ids[tst_ids],
                         "train_case_ids"=>case_ids[tr_ids], "train_x"=>X_train,"Y_t_train"=>Y_t_train, "Y_e_train"=>Y_e_train,
                         "tst_case_ids"=>case_ids[tst_ids], "test_x"=>X_test, "Y_t_test"=>Y_t_test, "Y_e_test"=>Y_e_test)
+    end
+    return folds 
+end 
+function split_train_test(X::Matrix, X_c::Matrix,  Y_t::Vector,Y_e::Vector, case_ids::Vector; nfolds = 10)
+    folds = Array{Dict, 1}(undef, nfolds)
+    nsamples = size(X)[1]
+    fold_size = Int(floor(nsamples / nfolds))
+    ids = collect(1:nsamples)
+    shuffled_ids = shuffle(ids)
+    for i in 1:nfolds
+        tst_ids = shuffled_ids[collect((i-1) * fold_size +1: min(nsamples, i * fold_size))]
+        tr_ids = setdiff(ids, tst_ids)
+        X_train = X[tr_ids,:]
+        X_c_train = X_c[tr_ids,:]
+        Y_t_train = Y_t[tr_ids]
+        Y_e_train = Y_e[tr_ids]
+        X_test = X[tst_ids,:]
+        X_c_test = X_c[tst_ids,:]
+        Y_t_test = Y_t[tst_ids]
+        Y_e_test = Y_e[tst_ids]
+
+        folds[i] = Dict("foldn"=> i, "train_ids"=>tr_ids, "test_ids"=>case_ids[tst_ids],
+                        "train_case_ids"=>case_ids[tr_ids], "train_x"=>X_train, "train_x_c"=> X_c_train, "Y_t_train"=>Y_t_train, "Y_e_train"=>Y_e_train,
+                        "tst_case_ids"=>case_ids[tst_ids], "test_x"=>X_test,  "test_x_c"=> X_c_test, "Y_t_test"=>Y_t_test, "Y_e_test"=>Y_e_test)
     end
     return folds 
 end 

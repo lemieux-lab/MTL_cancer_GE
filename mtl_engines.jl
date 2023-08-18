@@ -132,8 +132,8 @@ struct mtl_cph_AE
     encoder::Chain
 end 
 struct enccphdnn
-    net::Chain
     encoder::Chain
+    cphdnn::Chain
     opt
     lossf
 end 
@@ -142,6 +142,13 @@ end
 function l2_penalty(model::Flux.Chain)
     l2_sum = 0
     for wm in model
+        l2_sum += sum(abs2, wm.weight)
+    end 
+    return l2_sum
+end
+function l2_penalty(model::enccphdnn)
+    l2_sum = 0
+    for wm in Flux.Chain(model.encoder...,model.cphdnn...)
         l2_sum += sum(abs2, wm.weight)
     end 
     return l2_sum
@@ -191,6 +198,14 @@ end
 
 
 ####### Model picker
+####HELPER functions 
+function layer_size(insize, dim_redux;nb_hl=2)
+    x1, y1 = 0,dim_redux
+    x2, y2 = nb_hl + 1,insize
+    f(x::Int) = Int(floor(sqrt(x * (y2 - y1) / (x2 - x1)))) + y1 
+    return f 
+end 
+####
 function build(model_params)
     # picks right confiration model for given params
     if model_params["model_type"] == "linear"
@@ -223,20 +238,24 @@ function build(model_params)
         clf = dnn(clf_chain, clf_opt, clf_lossf)
         model = mtl_FE(FE, data_FE , clf)
     elseif model_params["model_type"] == "enccphdnn"
-        enc_hl1 = gpu(Flux.Dense(model_params["insize"], model_params["enc_hl_size"], relu))
-        enc_hl2 = gpu(Flux.Dense(model_params["enc_hl_size"], model_params["enc_hl_size"], relu))
-        redux_layer = gpu(Flux.Dense(model_params["enc_hl_size"], model_params["dim_redux"], identity))
+        ls2 = layer_size(model_params["insize"], model_params["dim_redux"])
+        #enc_hl1 = gpu(Flux.Dense(model_params["insize"], ls2(2), relu))
+        #enc_hl2 = gpu(Flux.Dense(ls2(2),ls2(1), relu))
+        #redux_layer = gpu(Flux.Dense(ls2(1), model_params["dim_redux"], relu))
+        enc_hl1 = gpu(Flux.Dense(model_params["insize"], model_params["enc_hl1_size"], relu))
+        enc_hl2 = gpu(Flux.Dense(model_params["enc_hl1_size"],model_params["enc_hl2_size"], relu))
+        redux_layer = gpu(Flux.Dense(model_params["enc_hl2_size"], model_params["dim_redux"], relu))
         encoder = gpu(Flux.Chain(enc_hl1, enc_hl2, redux_layer))
-        chain = gpu(Flux.Chain(encoder..., Dense(model_params["dim_redux"] , model_params["cph_hl_size"], relu),
+        cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"]  + model_params["nb_clinf"] , model_params["cph_hl_size"], relu),
         Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], relu),
-        Dense(model_params["cph_hl_size"] , 1, sigmoid)))
+        Dense(model_params["cph_hl_size"] , 1, sigmoid))) 
         opt = Flux.ADAM(model_params["cph_lr"])
-        model = enccphdnn(chain, encoder, opt, cox_l2)
+        model = enccphdnn(encoder, cphdnn, opt, cox_l2)
     elseif model_params["model_type"] == "mtl_ae"
         AE = AE_model(model_params)
         clf_chain = gpu(Flux.Chain(
         AE.encoder...,
-        Flux.Dense(model_params["dim_redux"], model_params["clf_hl_size"], relu), 
+        Flux.Dense(model_params["dim_redux"] , model_params["clf_hl_size"], relu), 
         Flux.Dense(model_params["clf_hl_size"], model_params["clf_hl_size"], relu), 
         Flux.Dense(model_params["clf_hl_size"], model_params["nclasses"], identity)))
         clf_opt = Flux.ADAM(model_params["lr_clf"])
@@ -258,9 +277,8 @@ function build(model_params)
     return model 
 end
 
-function cox_l2(mdl, X, Y_e, NE_frac, wd)
-    
-    return cox_nll_vec(mdl,X,Y_e, NE_frac) + wd * l2_penalty(mdl) 
+function cox_l2(mdl::enccphdnn, X, X_c, Y_e, NE_frac, wd)
+    return cox_nll_vec(mdl,X, X_c, Y_e, NE_frac) + wd * l2_penalty(mdl) 
 end
 ###### Train loop functions
 function train!(model::AE_model, fold;nepochs = 500, batchsize = 500, wd = 1e-6)
@@ -508,7 +526,7 @@ function to_cpu(model::mtl_cph_AE)
     return mtl_cph_AE(cpu(model.ae), cpu(model.cph), cpu(model.encoder))
 end 
 function to_cpu(model::enccphdnn)
-    return enccphdnn(cpu(model.net), cpu(model.encoder), model.opt, model.lossf)
+    return enccphdnn(cpu(model.encoder),cpu(model.cphdnn), model.opt, model.lossf)
 end 
 
 # define dump call back 
