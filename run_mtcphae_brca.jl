@@ -10,8 +10,51 @@ outpath, session_id = set_dirs()
 #brca_prediction = GDC_data("Data/GDC_processed/TCGA_BRCA_TPM_lab.h5", log_transform = true, shuffled = true);
 
 ##### DATA loading
+brca_fpkm = CSV.read("Data/GDC_processed/TCGA-BRCA.htseq_fpkm.tsv", DataFrame)
+ids = names(brca_fpkm)
+brca_fpkm[:,1]
+CLIN_FULL = CSV.read("Data/GDC_processed/GDC_clinical_raw.tsv", DataFrame)
+brca_submitter_ids = [join(split(x,"-")[1:3],"-") for x in ids[2:end]]
+keep = [split(x,"-")[4] == "01A" for x in ids[2:end]]
+brca_submitter_ids = brca_submitter_ids[findall(keep)]
+brca_fpkm = brca_fpkm[:,findall(keep)]
+# remove duplicates
+
+struct BRCA_data
+    data::Matrix # gene expression data
+    genes::Array # gene names 
+    samples::Array # sample ids (case_ids)
+    survt::Array # survival times
+    surve::Array # censorship
+    age::Array # patient age 
+    stage::Array # cancer stage 
+    ethnicity::Array # patient ethnicity 
+end 
+features = ["case_id", "case_submitter_id", "project_id", "gender", "age_at_index","age_at_diagnosis", "days_to_death", "days_to_last_follow_up", "primary_diagnosis", "treatment_type"]
+BRCA_CLIN = CLIN_FULL[findall([x in brca_submitter_ids for x in CLIN_FULL[:,"case_submitter_id"]]),features]
+BRCA_CLIN = BRCA_CLIN[findall(nonunique(BRCA_CLIN[:,1:end-1])),:]
+BRCA_CLIN[findall(BRCA_CLIN[:,"days_to_death"] .== "'--"), "days_to_death"] .= "NA"
+BRCA_CLIN[findall(BRCA_CLIN[:,"days_to_last_follow_up"] .== "'--"), "days_to_last_follow_up"] .= "NA"
+BRCA_CLIN = BRCA_CLIN[findall(BRCA_CLIN[:,"days_to_death"] .!= "NA" .|| BRCA_CLIN[:,"days_to_last_follow_up"] .!= "NA"),:]
+survt = Array{String}(BRCA_CLIN[:,"days_to_death"])
+surve = ones(length(survt))
+surve[survt .== "NA"] .= 0
+survt[survt .== "NA"] .= BRCA_CLIN[survt .== "NA","days_to_last_follow_up"]
+survt = [Int(parse(Float32, x)) for x in survt]
+sample_ids = intersect(BRCA_CLIN[:,"case_submitter_id"], brca_submitter_ids)
+# select in fpkm matrix 
+findall([x in sample_ids for x in brca_submitter_ids])
+unique(brca_submitter_ids)
+fpkm_data = Matrix(brca_fpkm[:,findall([x in sample_ids for x in brca_submitter_ids])])
+# select in clinical file matrix
+counter(list_data) = Dict([(x, sum(list_data .== x)) for x in unique(list_data)])
+counter(brca_submitter_ids)
+data = Matrix(brca_fpkm[:,brca_fpkm[:,findall(tmp) .+ 1]])
+genes = brca_fpkm[:,1]
+samples = brca_submitter_ids
 #brca_prediction = GDC_data_surv(TPM_data, case_ids, gene_names, subgroups, survt, surve) 
 brca_prediction = GDC_data_surv("Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5";log_transf = true);
+
 
 nfolds = 5
 ##### MTAE for survival prediction
