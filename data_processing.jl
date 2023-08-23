@@ -236,18 +236,94 @@ function list_stages(case_ids, stages)
     return stage_i, stage_ii, stage_iii, stage_iv        
 end 
 
-function assemble_clinf()
-    BRCA_CLIN = CSV.read("Data/GDC_processed/TCGA_BRCA_clinical_survival.csv", DataFrame)
-    clin_data = CSV.read("Data/GDC_processed/TCGA_BRCA_clinicial_raw.csv", DataFrame, header = 2)
 
-    age_dict = list_ages(BRCA_CLIN[:,"case_id"],BRCA_CLIN[:,"age_at_diagnosis"])
-    tmp = innerjoin(clin_data[:,["Complete TCGA ID","AJCC Stage"]], BRCA_CLIN, on=["Complete TCGA ID"=>"case_submitter_id"], makeunique = true)
-    stage_i_dict, stage_ii_dict, stage_iii_dict,stage_iv_dict = list_stages(tmp[:,"case_id"],clin_data[:,"AJCC Stage"]) 
-    ages = [log10(age_dict[row])  for row in brca_prediction.rows]
-    stage_i = [stage_i_dict[row] for row in brca_prediction.rows]
-    stage_ii = [stage_ii_dict[row] for row in brca_prediction.rows]
-    stage_iii = [stage_iii_dict[row] for row in brca_prediction.rows]
-    stage_iv = [stage_iv_dict[row] for row in brca_prediction.rows]
-    clinf = DataFrame(["case_id"=> brca_prediction.rows, "age"=>ages,"stage_i"=>stage_i,"stage_ii"=>stage_ii,"stage_iii"=>stage_iii,"stage_iv"=>stage_iv])
+function assemble_clinf(brca_prediction)
+    clinf = DataFrame(["samples"=> brca_prediction.samples, 
+        "age"=>log2.(brca_prediction.age),
+        "stage_i"=> Array{Int}([x in ["Stage I", "Stage IA", "Stage IB", "Stage IC"] for x in brca_prediction.stage]),
+        "stage_ii"=>  Array{Int}([x in ["Stage II", "Stage IIA", "Stage IIB", "Stage IIC"] for x in brca_prediction.stage]),
+        "stage_iii"=>  Array{Int}([x in ["Stage III", "Stage IIIA", "Stage IIIB", "Stage IIIC"] for x in brca_prediction.stage]),
+        "stage_iv"=>  Array{Int}([x in ["Stage IV"] for x in brca_prediction.stage]) ])
     return clinf
 end
+struct BRCA_data
+    data::Matrix # gene expression data
+    samples::Array # sample ids (case_ids)
+    genes::Array # gene names 
+    survt::Array # survival times
+    surve::Array # censorship
+    age::Array # patient age 
+    stage::Array # cancer stage 
+    ethnicity::Array # patient ethnicity 
+end
+function write_h5(dat::BRCA_data, outfile)
+    # HDF5
+    # writing to hdf5 
+    f = h5open(outfile, "w")
+    f["data"] = dat.data
+    f["samples"] = dat.samples
+    f["genes"] = dat.genes
+    f["survt"] = dat.survt 
+    f["surve"] = dat.surve
+    f["age"] = dat.age
+    f["stage"] = dat.stage
+    f["ethnicity"] = dat.ethnicity
+    
+    close(f)
+end 
+function BRCA_data(infile::String)
+    inf = h5open(infile, "r")
+    data, samples, genes, survt, surve,age, stage, ethnicity = inf["data"][:,:], inf["samples"][:], inf["genes"][:], inf["survt"][:], inf["surve"][:], inf["age"][:], inf["stage"][:], inf["ethnicity"][:]
+    brca_prediction = BRCA_data(data, samples, genes, survt, surve,age, stage, ethnicity)
+    close(inf)
+    return brca_prediction 
+end 
+
+function compute_t_e_on_clinical_data(CLIN_FULL, brca_submitter_ids)
+    features = ["case_id", "case_submitter_id", "project_id", "gender", "age_at_index","age_at_diagnosis","ajcc_pathologic_stage", "ann_arbor_pathologic_stage", "days_to_death", "days_to_last_follow_up","ethnicity","primary_diagnosis", "treatment_type"]
+    BRCA_CLIN = CLIN_FULL[findall([x in brca_submitter_ids for x in CLIN_FULL[:,"case_submitter_id"]]),features]
+    BRCA_CLIN = BRCA_CLIN[findall(nonunique(BRCA_CLIN[:,1:end-1])),:]
+    BRCA_CLIN[findall(BRCA_CLIN[:,"days_to_death"] .== "'--"), "days_to_death"] .= "NA"
+    BRCA_CLIN[findall(BRCA_CLIN[:,"days_to_last_follow_up"] .== "'--"), "days_to_last_follow_up"] .= "NA"
+    BRCA_CLIN = BRCA_CLIN[findall(BRCA_CLIN[:,"days_to_death"] .!= "NA" .|| BRCA_CLIN[:,"days_to_last_follow_up"] .!= "NA"),:]
+    BRCA_CLIN[:, "age_years"] .= [parse(Int, x) for x in BRCA_CLIN[:,"age_at_index"]]
+    # BRCA_CLIN[:, "age_days"] .= [parse(Int, x) for x in BRCA_CLIN[:,"age_at_diagnosis"]]
+    
+    typeof(BRCA_CLIN[:, "age_at_index"])
+    survt = Array{String}(BRCA_CLIN[:,"days_to_death"])
+    surve = ones(length(survt))
+    surve[survt .== "NA"] .= 0
+    survt[survt .== "NA"] .= BRCA_CLIN[survt .== "NA","days_to_last_follow_up"]
+    survt = [Int(parse(Float32, x)) for x in survt]
+    BRCA_CLIN[:,"survt"] .= survt
+    BRCA_CLIN[:,"surve"] .= surve    
+    features = ["case_id", "case_submitter_id", "project_id", "gender", "age_years", "ajcc_pathologic_stage", "ann_arbor_pathologic_stage", "days_to_death", "days_to_last_follow_up","ethnicity","primary_diagnosis", "treatment_type", "survt", "surve"]
+    
+    return BRCA_CLIN[:,features]
+end
+function assemble_BRCA_data(CLIN_FULL, brca_fpkm_df)
+    ids = names(brca_fpkm_df)
+    brca_submitter_ids = [join(split(x,"-")[1:3],"-") for x in ids[2:end]]
+    keep = [split(x,"-")[4] == "01A" for x in ids[2:end]] # keep only the 01A tagged samples
+    brca_submitter_ids = brca_submitter_ids[findall(keep)]
+    gene_names = brca_fpkm_df[:,1]
+    brca_fpkm_df = brca_fpkm_df[:,findall(keep) .+ 1]
+    BRCA_CF = compute_t_e_on_clinical_data(CLIN_FULL, brca_submitter_ids)
+    sample_ids = intersect(BRCA_CF[:,"case_submitter_id"], brca_submitter_ids)
+    # select in fpkm matrix 
+    brca_fpkm_df = brca_fpkm_df[:,findall([x in BRCA_CF[:,"case_submitter_id"] for x in brca_submitter_ids])]
+    data = Matrix(brca_fpkm_df[:,sort(names(brca_fpkm_df))])
+    # select in clinical file matrix
+    sample_ids = names(brca_fpkm_df)
+    samples = sort(sample_ids)
+    survt = BRCA_CF[sortperm(sample_ids),"survt"]
+    surve = BRCA_CF[sortperm(sample_ids),"surve"]
+    age = BRCA_CF[sortperm(sample_ids),"age_years"]
+    ethnicity = Array{String}(BRCA_CF[sortperm(sample_ids),"ethnicity"])
+    stage = Array{String}(BRCA_CF[sortperm(sample_ids),"ajcc_pathologic_stage"])
+    brca_prediction = BRCA_data(Matrix(data'), samples, gene_names,  survt, surve, age, stage, ethnicity)
+    infile = "Data/GDC_processed/TCGA_BRCA_surv_cf_fpkm.h5"
+    write_h5(brca_prediction, infile)
+
+    return brca_prediction, infile
+end 

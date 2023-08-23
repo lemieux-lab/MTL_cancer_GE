@@ -270,8 +270,8 @@ function build_cphdnn(params;device =gpu)
 end 
 
 function cox_nll_vec(mdl::enccphdnn, X_, X_c_, Y_e_, NE_frac)
-    #outs = vec(mdl.cphdnn(vcat(mdl.encoder(X_), X_c_)))
-    outs = vec(mdl.cphdnn(mdl.encoder(X_)))
+    outs = vec(mdl.cphdnn(vcat(mdl.encoder(X_), X_c_)))
+    #outs = vec(mdl.cphdnn(mdl.encoder(X_)))
     hazard_ratios = exp.(outs)
     log_risk = log.(cumsum(hazard_ratios))
     uncensored_likelihood = outs .- log_risk

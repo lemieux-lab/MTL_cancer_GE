@@ -11,61 +11,25 @@ outpath, session_id = set_dirs()
 
 ##### DATA loading
 brca_fpkm = CSV.read("Data/GDC_processed/TCGA-BRCA.htseq_fpkm.tsv", DataFrame)
-ids = names(brca_fpkm)
-brca_fpkm[:,1]
 CLIN_FULL = CSV.read("Data/GDC_processed/GDC_clinical_raw.tsv", DataFrame)
-brca_submitter_ids = [join(split(x,"-")[1:3],"-") for x in ids[2:end]]
-keep = [split(x,"-")[4] == "01A" for x in ids[2:end]]
-brca_submitter_ids = brca_submitter_ids[findall(keep)]
-brca_fpkm = brca_fpkm[:,findall(keep)]
-# remove duplicates
+# brca_prediction, infile = assemble_BRCA_data(CLIN_FULL, brca_fpkm_df)
+infile = "Data/GDC_processed/TCGA_BRCA_surv_cf_fpkm.h5"
+brca_prediction = BRCA_data(infile)
 
-struct BRCA_data
-    data::Matrix # gene expression data
-    genes::Array # gene names 
-    samples::Array # sample ids (case_ids)
-    survt::Array # survival times
-    surve::Array # censorship
-    age::Array # patient age 
-    stage::Array # cancer stage 
-    ethnicity::Array # patient ethnicity 
-end 
-features = ["case_id", "case_submitter_id", "project_id", "gender", "age_at_index","age_at_diagnosis", "days_to_death", "days_to_last_follow_up", "primary_diagnosis", "treatment_type"]
-BRCA_CLIN = CLIN_FULL[findall([x in brca_submitter_ids for x in CLIN_FULL[:,"case_submitter_id"]]),features]
-BRCA_CLIN = BRCA_CLIN[findall(nonunique(BRCA_CLIN[:,1:end-1])),:]
-BRCA_CLIN[findall(BRCA_CLIN[:,"days_to_death"] .== "'--"), "days_to_death"] .= "NA"
-BRCA_CLIN[findall(BRCA_CLIN[:,"days_to_last_follow_up"] .== "'--"), "days_to_last_follow_up"] .= "NA"
-BRCA_CLIN = BRCA_CLIN[findall(BRCA_CLIN[:,"days_to_death"] .!= "NA" .|| BRCA_CLIN[:,"days_to_last_follow_up"] .!= "NA"),:]
-survt = Array{String}(BRCA_CLIN[:,"days_to_death"])
-surve = ones(length(survt))
-surve[survt .== "NA"] .= 0
-survt[survt .== "NA"] .= BRCA_CLIN[survt .== "NA","days_to_last_follow_up"]
-survt = [Int(parse(Float32, x)) for x in survt]
-sample_ids = intersect(BRCA_CLIN[:,"case_submitter_id"], brca_submitter_ids)
-# select in fpkm matrix 
-findall([x in sample_ids for x in brca_submitter_ids])
-unique(brca_submitter_ids)
-fpkm_data = Matrix(brca_fpkm[:,findall([x in sample_ids for x in brca_submitter_ids])])
-# select in clinical file matrix
-counter(list_data) = Dict([(x, sum(list_data .== x)) for x in unique(list_data)])
-counter(brca_submitter_ids)
-data = Matrix(brca_fpkm[:,brca_fpkm[:,findall(tmp) .+ 1]])
-genes = brca_fpkm[:,1]
-samples = brca_submitter_ids
 #brca_prediction = GDC_data_surv(TPM_data, case_ids, gene_names, subgroups, survt, surve) 
-brca_prediction = GDC_data_surv("Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5";log_transf = true);
+#brca_prediction = GDC_data_surv("Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5";log_transf = true);
 
 
 nfolds = 5
 ##### MTAE for survival prediction
 brca_mtcphae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
-"model_type" => "mtl_cph_ae", "session_id" => session_id, "nsamples_train" => length(brca_prediction.rows) - Int(round(length(brca_prediction.rows) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.rows) / nfolds)),
-"nsamples" => length(brca_prediction.rows) , "insize" => length(brca_prediction.cols), "ngenes" => length(brca_prediction.cols), "nclasses"=> length(unique(brca_prediction.subgroups)), 
+"model_type" => "mtl_cph_ae", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
+"nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
 "nfolds" => 5,  "nepochs" => 10_000, "mb_size" => 50, "lr_ae" => 1e-5, "lr_clf" => 1e-4,  "wd" => 1e-1, "dim_redux" => 30, "enc_nb_hl" => 2, 
 "enc_hl_size" => 50, "dec_nb_hl" => 2, "dec_hl_size" => 50, "clf_nb_hl" => 2, "clf_hl_size"=> 50,
 "lr_cph" => 1e-4, "cph_nb_hl" => 2, "cph_hl_size" => 50)
 
-dump_cb_brca = dump_model_cb(Int(floor(brca_mtcphae_params["nsamples"] / brca_mtcphae_params["mb_size"])), labs_appdf(brca_prediction.subgroups), export_type = "pdf")
+dump_cb_brca = dump_model_cb(Int(floor(brca_mtcphae_params["nsamples"] / brca_mtcphae_params["mb_size"])), labs_appdf(brca_prediction.stage), export_type = "pdf")
 device!()
 
 validate!(brca_mtcphae_params, brca_prediction, dump_cb_brca)
