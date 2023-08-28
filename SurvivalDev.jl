@@ -269,17 +269,7 @@ function build_cphdnn(params;device =gpu)
     return device(mdl) 
 end 
 
-function cox_nll_vec(mdl::enccphdnn, X_, X_c_, Y_e_, NE_frac)
-    outs = vec(mdl.cphdnn(vcat(mdl.encoder(X_), X_c_)))
-    #outs = vec(mdl.cphdnn(mdl.encoder(X_)))
-    hazard_ratios = exp.(outs)
-    log_risk = log.(cumsum(hazard_ratios))
-    uncensored_likelihood = outs .- log_risk
-    censored_likelihood = uncensored_likelihood .* Y_e_'
-    #neg_likelihood = - sum(censored_likelihood) / sum(e .== 1)
-    neg_likelihood = - sum(censored_likelihood) * NE_frac
-    return neg_likelihood
-end 
+
 
 
 function concordance_index(T, E, S)

@@ -297,9 +297,10 @@ function compute_t_e_on_clinical_data(CLIN_FULL, brca_submitter_ids)
     survt = [Int(parse(Float32, x)) for x in survt]
     BRCA_CLIN[:,"survt"] .= survt
     BRCA_CLIN[:,"surve"] .= surve    
+    keep = BRCA_CLIN[:,"survt"] .> 0 # keep only positive valued survt patients 
     features = ["case_id", "case_submitter_id", "project_id", "gender", "age_years", "ajcc_pathologic_stage", "ann_arbor_pathologic_stage", "days_to_death", "days_to_last_follow_up","ethnicity","primary_diagnosis", "treatment_type", "survt", "surve"]
     
-    return BRCA_CLIN[:,features]
+    return BRCA_CLIN[keep,features]
 end
 function assemble_BRCA_data(CLIN_FULL, brca_fpkm_df)
     ids = names(brca_fpkm_df)

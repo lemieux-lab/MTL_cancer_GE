@@ -24,6 +24,7 @@ get_fold_data(foldn, ids, cdata) = cdata.data[find_fold_ids(foldn, ids, cdata.ro
 ############################
 ###### General utilities ###
 ############################
+counter(feature, clin_data) = Dict([(x, sum(clin_data[:, feature] .== x)) for x in unique(clin_data[:,feature])])
 getcurrentcommitnb(;digits = 7) =  read(`git rev-parse HEAD`, String)[1:digits]
 zpad(n::Int;pad::Int=9) = lpad(string(n),pad,'0')
 function labs_appdf(labs) 

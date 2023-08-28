@@ -195,8 +195,34 @@ end
 function crossentropy_l2(model, X, Y;weight_decay = 1e-6)
     return Flux.Losses.logitcrossentropy(model.model(X), Y) + l2_penalty(model) * weight_decay
 end 
-
-
+function cox_l2(mdl::enccphdnn, X, X_c, Y_e, NE_frac, wd)
+    return cox_nll_vec(mdl,X, X_c, Y_e, NE_frac) + wd * l2_penalty(mdl) 
+end
+function cox_l2(mdl::dnn, X, Y_e, NE_frac, wd)
+    return cox_nll_vec(mdl,X, Y_e, NE_frac) + wd * l2_penalty(mdl) 
+end
+function cox_nll_vec(mdl::dnn, X_, Y_e_, NE_frac)
+    outs = vec(mdl.model(X_))
+    #outs = vec(mdl.cphdnn(mdl.encoder(X_)))
+    hazard_ratios = exp.(outs)
+    log_risk = log.(cumsum(hazard_ratios))
+    uncensored_likelihood = outs .- log_risk
+    censored_likelihood = uncensored_likelihood .* Y_e_'
+    #neg_likelihood = - sum(censored_likelihood) / sum(e .== 1)
+    neg_likelihood = - sum(censored_likelihood) * NE_frac
+    return neg_likelihood
+end 
+function cox_nll_vec(mdl::enccphdnn, X_, X_c_, Y_e_, NE_frac)
+    outs = vec(mdl.cphdnn(vcat(mdl.encoder(X_), X_c_)))
+    #outs = vec(mdl.cphdnn(mdl.encoder(X_)))
+    hazard_ratios = exp.(outs)
+    log_risk = log.(cumsum(hazard_ratios))
+    uncensored_likelihood = outs .- log_risk
+    censored_likelihood = uncensored_likelihood .* Y_e_'
+    #neg_likelihood = - sum(censored_likelihood) / sum(e .== 1)
+    neg_likelihood = - sum(censored_likelihood) * NE_frac
+    return neg_likelihood
+end 
 ####### Model picker
 ####HELPER functions 
 function layer_size(insize, dim_redux;nb_hl=2)
@@ -221,7 +247,7 @@ function build(model_params)
         lossf = crossentropy_l2
         model = dnn(chain, opt, lossf)
     elseif model_params["model_type"] == "cphdnn"
-        chain = gpu(Chain(Dense(model_params["insize"] , model_params["cph_hl_size"], relu),
+        chain = gpu(Chain(Dense(model_params["insize"] + model_params["nb_clinf"] , model_params["cph_hl_size"], relu),
         Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], relu),
         Dense(model_params["cph_hl_size"] , 1, sigmoid)))
         opt = Flux.ADAM(model_params["cph_lr"])
@@ -277,9 +303,7 @@ function build(model_params)
     return model 
 end
 
-function cox_l2(mdl::enccphdnn, X, X_c, Y_e, NE_frac, wd)
-    return cox_nll_vec(mdl,X, X_c, Y_e, NE_frac) + wd * l2_penalty(mdl) 
-end
+
 ###### Train loop functions
 function train!(model::AE_model, fold;nepochs = 500, batchsize = 500, wd = 1e-6)
     ## Vanilla Auto-Encoder training function 
