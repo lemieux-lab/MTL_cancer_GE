@@ -25,17 +25,39 @@ nfolds = 5
 brca_mtcphae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "mtl_cph_ae", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
 "nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
-"nfolds" => 5,  "nepochs" => 10_000, "mb_size" => 50, "lr_ae" => 1e-5, "lr_clf" => 1e-4,  "wd" => 1e-1, "dim_redux" => 30, "enc_nb_hl" => 2, 
-"enc_hl_size" => 50, "dec_nb_hl" => 2, "dec_hl_size" => 50, "clf_nb_hl" => 2, "clf_hl_size"=> 50,
-"lr_cph" => 1e-4, "cph_nb_hl" => 2, "cph_hl_size" => 50)
+"nfolds" => 5,  "nepochs" => 10_000, "mb_size" => 50, "ae_lr" => 1e-4, "wd" => 1e-1, "dim_redux" => 32, "enc_nb_hl" => 2, 
+"enc_hl1_size" => 128, "enc_hl2_size" => 128, "dec_nb_hl" => 2, "dec_hl1_size" => 128, "dec_hl2_size" => 128,"clf_nb_hl" => 2, "clf_hl_size"=> 128,
+"nb_clinf"=>5, "cph_lr" => 1e-3, "cph_nb_hl" => 1, "cph_hl_size" => 64)
+clinf = assemble_clinf(brca_prediction)
+validate_mtcphae!(brca_mtcphae_params, brca_prediction, dump_cb_brca)
 
-dump_cb_brca = dump_model_cb(Int(floor(brca_mtcphae_params["nsamples"] / brca_mtcphae_params["mb_size"])), labs_appdf(brca_prediction.stage), export_type = "pdf")
+model = build(brca_mtcphae_params)
+to_cpu(model)
+model.cph.cphdnn
+cpu(model.encoder)
+cpu(model.cph)
+cpu(model.ae)
+folds = split_train_test(Matrix(brca_prediction.data), Matrix(clinf[:,2:end]), brca_prediction.survt, brca_prediction.surve, brca_prediction.samples;nfolds =5)
+fold = folds[1]
+dump_cb_brca = dump_model_cb(100, labs_appdf(brca_prediction.stage), export_type = "pdf")
 device!()
+wd = brca_mtcphae_params["wd"]
+ordering = sortperm(-fold["Y_t_train"])
+train_x = gpu(Matrix(fold["train_x"][order,:]'));
+train_x_c = gpu(Matrix(fold["train_x_c"][ordering,:]'));
 
-validate!(brca_mtcphae_params, brca_prediction, dump_cb_brca)
-function validate!(brca_mtcphae_params, brca_prediction, dump_cb_brca)
+train_y_t = gpu(Matrix(fold["Y_t_train"][order,:]'));
+train_y_e = gpu(Matrix(fold["Y_e_train"][order,:]'));
+NE_frac_tr = sum(train_y_e .== 1) != 0 ? 1 / sum(train_y_e .== 1) : 0
+train_x
+train_x_c
+folds[1]["train_x_c"]
+model.cph.encoder(train_x)
+model.cph.lossf(model.cph, train_x, train_x_c, train_y_e, NE_frac_tr, brca_mtcphae_params["wd"])
+
+function validate_mtcphae!(brca_mtcphae_params, brca_prediction, dump_cb_brca;device=gpu)
     
-    folds = split_train_test(Matrix(brca_prediction.data), brca_prediction.survt, brca_prediction.surve, brca_prediction.rows;nfolds =5)
+    folds = split_train_test(Matrix(brca_prediction.data), Matrix(clinf[:,2:end]), brca_prediction.survt, brca_prediction.surve, brca_prediction.samples;nfolds =5)
     mkdir("RES/$(brca_mtcphae_params["session_id"])/$(brca_mtcphae_params["modelid"])")
     # init results lists 
     # init results lists 
@@ -54,23 +76,26 @@ function validate!(brca_mtcphae_params, brca_prediction, dump_cb_brca)
 
     
     for fold in folds
-        device()
         #device!()
         model = build(brca_mtcphae_params)
         ## STATIC VARS    
         batchsize = brca_mtcphae_params["mb_size"]
         nepochs= brca_mtcphae_params["nepochs"]
         wd = brca_mtcphae_params["wd"]
-        order = sortperm(fold["Y_t_train"])
-        train_x = Matrix(fold["train_x"][order,:]');
-        train_y_t = Matrix(fold["Y_t_train"][order,:]');
-        train_y_e = Matrix(fold["Y_e_train"][order,:]');
+        ordering = sortperm(-fold["Y_t_train"])
+        train_x = device(Matrix(fold["train_x"][ordering,:]'));
+        train_x_c = device(Matrix(fold["train_x_c"][ordering,:]'));
+
+        train_y_t = device(Matrix(fold["Y_t_train"][ordering,:]'));
+        train_y_e = device(Matrix(fold["Y_e_train"][ordering,:]'));
         NE_frac_tr = sum(train_y_e .== 1) != 0 ? 1 / sum(train_y_e .== 1) : 0
 
-        order = sortperm(fold["Y_t_test"])
-        test_x = Matrix(fold["test_x"][order,:]');
-        test_y_t = Matrix(fold["Y_t_test"][order,:]');
-        test_y_e = Matrix(fold["Y_e_test"][order,:]');
+        ordering = sortperm(-fold["Y_t_test"])
+        test_x = device(Matrix(fold["test_x"][ordering,:]'));
+        test_x_c = device(Matrix(fold["test_x_c"][ordering,:]'));
+
+        test_y_t = device(Matrix(fold["Y_t_test"][ordering,:]'));
+        test_y_e = device(Matrix(fold["Y_e_test"][ordering,:]'));
         NE_frac_tst = sum(test_y_e .== 1) != 0 ? 1 / sum(test_y_e .== 1) : 0
 
         #train_x_gpu = gpu(train_x)
@@ -82,7 +107,7 @@ function validate!(brca_mtcphae_params, brca_prediction, dump_cb_brca)
         for iter in 1:nepochs#ProgressBar(1:nepochs)
             cursor = (iter -1)  % nminibatches + 1
             mb_ids = collect((cursor -1) * batchsize + 1: min(cursor * batchsize, nsamples))
-            X_ = gpu(train_x[:,mb_ids])
+            X_ = train_x[:,mb_ids]
             ## gradient Auto-Encoder 
             ps = Flux.params(model.ae.net)
             gs = gradient(ps) do
@@ -91,34 +116,34 @@ function validate!(brca_mtcphae_params, brca_prediction, dump_cb_brca)
             Flux.update!(model.ae.opt, ps, gs)
             ## gradient CPH
             
-            ps = Flux.params(model.cph.model)
+            ps = Flux.params(model.cph.encoder, model.cph.cphdnn)
             gs = gradient(ps) do
-                
-                model.cph.lossf(model.cph.model,gpu(train_x),gpu(train_y_e), NE_frac_tr, brca_mtcphae_params["wd"])
+                model.cph.lossf(model.cph, train_x, train_x_c, train_y_e, NE_frac_tr, brca_mtcphae_params["wd"])
             end
             Flux.update!(model.cph.opt, ps, gs)
-            ae_loss = model.ae.lossf(model.ae, X_, X_, weight_decay = wd)
+            OUTS_tr = vec(model.cph.cphdnn(vcat(model.cph.encoder(train_x), train_x_c)))
+            ae_loss = model.ae.lossf(model.ae, train_x, train_x, weight_decay = wd)
             #ae_cor = my_cor(vec(train_x), cpu(vec(model.ae.net(gpu(train_x)))))
-            ae_cor =  round(my_cor(vec(X_), vec(model.ae.net(gpu(X_)))),digits = 3)
-            OUTS = model.cph.model(gpu(train_x))
-            cph_loss = model.cph.lossf(model.cph.model,gpu(train_x),gpu(train_y_e), NE_frac_tr, brca_mtcphae_params["wd"])
-            cind_tr, cdnt_tr, ddnt_tr  = concordance_index(gpu(train_y_t), gpu(train_y_e), OUTS)
+            ae_cor =  round(my_cor(vec(train_x), vec(model.ae.net(train_x))),digits = 3)
+            cph_loss = model.cph.lossf(model.cph,train_x, train_x_c, train_y_e, NE_frac_tr, brca_cphdnn_params["wd"])
+            cind_tr, cdnt_tr, ddnt_tr, tied_tr  = concordance_index(train_y_t, train_y_e, OUTS_tr)
             brca_mtcphae_params["tr_acc"] = cind_tr
             #push!(learning_curve, (ae_loss, ae_cor, cph_loss, cind_tr))
             # save model (bson) every epoch if specified 
-            ae_loss_test = round(model.ae.lossf(model.ae, gpu(test_x), gpu(test_x), weight_decay = wd), digits = 3)
-            ae_cor_test = round(my_cor(vec(gpu(test_x)), vec(model.ae.net(gpu(test_x)))), digits= 3)
-            cph_loss_test = round(model.cph.lossf(model.cph.model,gpu(test_x),gpu(test_y_e), NE_frac_tst, brca_mtcphae_params["wd"]), digits= 3)
-            cind_test = round(concordance_index(gpu(test_y_t), gpu(test_y_e), model.cph.model(gpu(test_x)))[1], digits =3)
+            ae_loss_test = round(model.ae.lossf(model.ae, test_x, test_x, weight_decay = wd), digits = 3)
+            ae_cor_test = round(my_cor(vec(test_x), vec(model.ae.net(test_x))), digits= 3)
+            cph_loss_test = round(model.cph.lossf(model.cph,test_x, test_x_c, test_y_e, NE_frac_tst, brca_mtcphae_params["wd"]), digits= 3)
+            OUTS_tst =  vec(model.cph.cphdnn(vcat(model.encoder(test_x), test_x_c)))
+            cind_test,cdnt_tst, ddnt_tst, tied_tst = concordance_index(test_y_t, test_y_e,OUTS_tst)
             push!(learning_curve, (ae_loss, ae_cor, cph_loss, cind_tr, ae_loss_test, ae_cor_test, cph_loss_test, cind_test))
-            println("$iter\t TRAIN AE-loss $(round(ae_loss,digits =3)) \t AE-cor: $(round(ae_cor, digits = 3))\t cph-loss: $(round(cph_loss,digits =3)) \t cph-cind: $(round(cind_tr,digits =3))\t TEST AE-loss $(round(ae_loss_test,digits =3)) \t AE-cor: $(round(ae_cor_test, digits = 3))\t cph-loss: $(round(cph_loss_test,digits =3)) \t cph-cind: $(round(cind_test,digits =3))")
+            println("FOLD $(fold["foldn"]) $iter\t TRAIN AE-loss $(round(ae_loss,digits =3)) \t AE-cor: $(round(ae_cor, digits = 3))\t cph-loss-avg: $(round(cph_loss / params_dict["nsamples_train"],digits =6)) \t cph-cind: $(round(cind_tr,digits =3))\t TEST AE-loss $(round(ae_loss_test,digits =3)) \t AE-cor: $(round(ae_cor_test, digits = 3))\t cph-loss-avg: $(round(cph_loss_test / params_dict["nsamples_test"],digits =6)) \t cph-cind: $(round(cind_test,digits =3)) [$(Int(cdnt_tst)), $(Int(ddnt_tst)), $(Int(tied_tst))]")
             dump_cb_brca(model, learning_curve, brca_mtcphae_params, iter, fold)
 
         end
-        OUTS = vec(cpu(model.cph.model(gpu(test_x))))
+        OUTS = cpu(vec(model.cph.cphdnn(vcat(model.encoder(test_x), test_x_c))))
         push!(scores_by_fold, OUTS)
-        push!(yt_by_fold, vec(test_y_t))
-        push!(ye_by_fold, vec(test_y_e))
+        push!(yt_by_fold, cpu(vec(test_y_t)))
+        push!(ye_by_fold, cpu(vec(test_y_e)))
     end
     #### TESTS
     concat_OUTS = vcat(scores_by_fold...)
@@ -140,8 +165,8 @@ function validate!(brca_mtcphae_params, brca_prediction, dump_cb_brca)
     p_low, x_low, sc1_low, sc2_low = surv_curve(concat_yt[low_risk], concat_ye[low_risk]; color = "blue")
 
     lrt_pval = round(log_rank_test(concat_yt, concat_ye, groups, ["low_risk", "high_risk"]; end_of_study = end_of_study); digits = 5)
-    f = draw(p_high + x_high + p_low + x_low, axis = (;title = "CPHDNN Auto-Encoder in Multi-Task - Predicted Low (blue) vs High (red) risk\nc-index: $(round(median(Cis), digits = 3))\nlog-rank-test pval: $lrt_pval"))
-    CairoMakie.save("$outpath/$(brca_mtcphae_params["modelid"])/low_vs_high_surv_curves.pdf",f)
+    f = draw(p_high + x_high + p_low + x_low, axis = (;title = "CPHDNN Single Task - Predicted Low (blue) vs High (red) risk\nc-index: $(round(median(Cis), digits = 3))\nlog-rank-test pval: $lrt_pval"))
+    CairoMakie.save("$outpath/$(brca_cphdnn_params["modelid"])/low_vs_high_surv_curves.pdf",f)
 end 
 #### TESTS
 OUTS = vec(cpu(model.cph.model(gpu(test_x))))

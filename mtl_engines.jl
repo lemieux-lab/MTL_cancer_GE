@@ -130,6 +130,11 @@ struct mtl_cph_AE
     ae::AE_model 
     cph::dnn
     encoder::Chain
+end
+struct mtcphAE
+    ae::AE_model 
+    cph::enccphdnn
+    encoder::Chain
 end 
 struct enccphdnn
     encoder::Chain
@@ -212,8 +217,8 @@ function cox_nll_vec(mdl::dnn, X_, Y_e_, NE_frac)
     neg_likelihood = - sum(censored_likelihood) * NE_frac
     return neg_likelihood
 end 
-function cox_nll_vec(mdl::enccphdnn, X_, X_c_, Y_e_, NE_frac)
-    outs = vec(mdl.cphdnn(vcat(mdl.encoder(X_), X_c_)))
+function cox_nll_vec(mdl::enccphdnn, x_, x_c_, Y_e_, NE_frac)
+    outs = vec(mdl.cphdnn(vcat(mdl.encoder(x_), x_c_)))
     #outs = vec(mdl.cphdnn(mdl.encoder(X_)))
     hazard_ratios = exp.(outs)
     log_risk = log.(cumsum(hazard_ratios))
@@ -272,9 +277,10 @@ function build(model_params)
         enc_hl2 = gpu(Flux.Dense(model_params["enc_hl1_size"],model_params["enc_hl2_size"], relu))
         redux_layer = gpu(Flux.Dense(model_params["enc_hl2_size"], model_params["dim_redux"], relu))
         encoder = gpu(Flux.Chain(enc_hl1, enc_hl2, redux_layer))
+        # cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"] + model_params["nb_clinf"], 1, sigmoid)))
         cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"]  + model_params["nb_clinf"] , model_params["cph_hl_size"], relu),
-        Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], relu),
-        Dense(model_params["cph_hl_size"] , 1, sigmoid))) 
+        Dense(model_params["cph_hl_size"] ,1, sigmoid)))#, model_params["cph_hl_size"], relu),
+        #Dense(model_params["cph_hl_size"] , 1, sigmoid))) 
         opt = Flux.ADAM(model_params["cph_lr"])
         model = enccphdnn(encoder, cphdnn, opt, cox_l2)
     elseif model_params["model_type"] == "mtl_ae"
@@ -289,15 +295,26 @@ function build(model_params)
         clf = dnn(clf_chain, clf_opt, clf_lossf)
         model = mtl_AE(AE, clf, AE.encoder)
     elseif model_params["model_type"] == "mtl_cph_ae"
-        AE = AE_model(model_params)
-        cph_chain = gpu(Flux.Chain(
-        AE.encoder...,
-        Flux.Dense(model_params["dim_redux"], model_params["cph_hl_size"], relu), 
-        Flux.Dense(model_params["cph_hl_size"], model_params["cph_hl_size"], relu), 
-        Flux.Dense(model_params["cph_hl_size"], 1,sigmoid)))
-        cph_opt = Flux.ADAM(model_params["lr_cph"])
-        cph = dnn(cph_chain, cph_opt, cox_l2)
-        model = mtl_cph_AE(AE, cph, AE.encoder)
+        enc_hl1 = gpu(Flux.Dense(model_params["insize"], model_params["enc_hl1_size"], relu))
+        enc_hl2 = gpu(Flux.Dense(model_params["enc_hl1_size"],model_params["enc_hl2_size"], relu))
+        redux_layer = gpu(Flux.Dense(model_params["enc_hl2_size"], model_params["dim_redux"], relu))
+        encoder = Flux.Chain(enc_hl1, enc_hl2, redux_layer)
+        dec_hl1 = gpu(Flux.Dense(model_params["dim_redux"], model_params["dec_hl1_size"], relu))
+        dec_hl2 = gpu(Flux.Dense(model_params["dec_hl1_size"],model_params["dec_hl2_size"], relu))
+        output_layer =  gpu(Flux.Dense(model_params["dec_hl2_size"], model_params["insize"], relu))
+        AE = AE_model(
+            Flux.Chain(enc_hl1, enc_hl2, redux_layer, dec_hl1, dec_hl2, output_layer),
+            encoder,
+            Flux.Chain(dec_hl1, dec_hl2, output_layer),
+            output_layer,
+            Flux.ADAM(model_params["ae_lr"]),
+            mse_l2
+        )
+        cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"]  + model_params["nb_clinf"] , model_params["cph_hl_size"], relu),
+        Dense(model_params["cph_hl_size"] ,1, tanh)))#, model_params["cph_hl_size"], relu),
+        cph_opt = Flux.ADAM(model_params["cph_lr"])
+        enccphdnn_model = enccphdnn(encoder, cphdnn, cph_opt, cox_l2)
+        model = mtcphAE(AE, enccphdnn_model, AE.encoder)
     end 
    
     return model 
@@ -548,6 +565,9 @@ function to_cpu(model::mtl_AE)
 end 
 function to_cpu(model::mtl_cph_AE)
     return mtl_cph_AE(cpu(model.ae), cpu(model.cph), cpu(model.encoder))
+end 
+function to_cpu(model::mtcphAE)
+    return mtcphAE(cpu(model.ae), cpu(model.cph), cpu(model.encoder))
 end 
 function to_cpu(model::enccphdnn)
     return enccphdnn(cpu(model.encoder),cpu(model.cphdnn), model.opt, model.lossf)

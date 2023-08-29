@@ -273,13 +273,14 @@ end
 
 
 function concordance_index(T, E, S)
-    concordant_pairs = S .> S'
+    concordant_pairs = S .< S'
     admissable_pairs = T .< T'
-    discordant_pairs = S .< S'
+    discordant_pairs = S .> S'
+    tied_pairs = sum(S .== S') - length(T)
     concordant = sum(E .* (admissable_pairs .* concordant_pairs))
     discordant = sum(E .* (admissable_pairs .* discordant_pairs) )
-    C_index = concordant / (concordant + discordant)
-    return C_index, concordant, discordant
+    C_index = concordant / (concordant + discordant)  
+    return C_index, concordant, discordant, tied_pairs
 end
 
 function c_index_dev(T,E,S)
