@@ -126,21 +126,16 @@ struct mtl_AE
     encoder::Chain
 end 
 
-struct mtl_cph_AE
-    ae::AE_model 
-    cph::dnn
-    encoder::Chain
-end
-struct mtcphAE
-    ae::AE_model 
-    cph::enccphdnn
-    encoder::Chain
-end 
 struct enccphdnn
     encoder::Chain
     cphdnn::Chain
     opt
     lossf
+end 
+struct mtcphAE
+    ae::AE_model 
+    cph::enccphdnn
+    encoder::Chain
 end 
 
 ###### Regularisation functions 
@@ -563,9 +558,7 @@ end
 function to_cpu(model::mtl_AE)
     return mtl_AE(cpu(model.ae), cpu(model.clf), cpu(model.encoder))
 end 
-function to_cpu(model::mtl_cph_AE)
-    return mtl_cph_AE(cpu(model.ae), cpu(model.cph), cpu(model.encoder))
-end 
+
 function to_cpu(model::mtcphAE)
     return mtcphAE(cpu(model.ae), cpu(model.cph), cpu(model.encoder))
 end 
@@ -587,7 +580,7 @@ function dump_model_cb(dump_freq, labels; export_type = ".png")
             X_tr = cpu(model.encoder(gpu(fold["train_x"]')))
             infos = labels[fold["train_ids"]]
             emb_fig_outpath = "RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))/model_$(zpad(iter)).$export_type"
-            plot_embed(X_tr, infos, params_dict, emb_fig_outpath)
+            #plot_embed(X_tr, infos, params_dict, emb_fig_outpath)
  
         end 
     end 
