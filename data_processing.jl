@@ -271,6 +271,19 @@ function write_h5(dat::BRCA_data, outfile)
     
     close(f)
 end 
+function minmaxnorm(data, genes)
+    # remove unexpressed
+    genes = genes[vec(sum(data, dims = 1) .!= 0)]
+    data = data[:, vec(sum(data, dims = 1) .!= 0)]
+    # normalize
+    vmax = maximum(data, dims = 1)
+    vmin = minimum(data, dims = 1)
+    newdata = (data .- vmin) ./ (vmax .- vmin)
+    genes = genes[vec(var(newdata, dims = 1) .> 0.02)]
+    newdata = newdata[:, vec(var(newdata, dims = 1) .> 0.02)]
+    return newdata, genes 
+end 
+
 function BRCA_data(infile::String; minmax_norm = false)
     inf = h5open(infile, "r")
     data, samples, genes, survt, surve,age, stage, ethnicity = inf["data"][:,:], inf["samples"][:], inf["genes"][:], inf["survt"][:], inf["surve"][:], inf["age"][:], inf["stage"][:], inf["ethnicity"][:]

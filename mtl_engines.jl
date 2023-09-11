@@ -205,8 +205,22 @@ end
 function cox_l2(mdl::dnn, X, Y_e, NE_frac, wd)
     return cox_nll_vec(mdl,X, Y_e, NE_frac) + wd * l2_penalty(mdl) 
 end
+function cox_l2(mdl::dnn, X, X_c, Y_e, NE_frac, wd)
+    return cox_nll_vec(mdl,X, X_c,  Y_e, NE_frac) + wd * l2_penalty(mdl) 
+end
 function cox_nll_vec(mdl::dnn, X_, Y_e_, NE_frac)
     outs = vec(mdl.model(X_))
+    #outs = vec(mdl.cphdnn(mdl.encoder(X_)))
+    hazard_ratios = exp.(outs)
+    log_risk = log.(cumsum(hazard_ratios))
+    uncensored_likelihood = outs .- log_risk
+    censored_likelihood = uncensored_likelihood .* Y_e_'
+    #neg_likelihood = - sum(censored_likelihood) / sum(e .== 1)
+    neg_likelihood = - sum(censored_likelihood) * NE_frac
+    return neg_likelihood
+end 
+function cox_nll_vec(mdl::dnn, X_, X_c_, Y_e_, NE_frac)
+    outs = vec(mdl.model( X_c_))
     #outs = vec(mdl.cphdnn(mdl.encoder(X_)))
     hazard_ratios = exp.(outs)
     log_risk = log.(cumsum(hazard_ratios))
@@ -250,6 +264,13 @@ function build(model_params)
         opt = Flux.ADAM(model_params["lr"])
         lossf = crossentropy_l2
         model = dnn(chain, opt, lossf)
+    elseif model_params["model_type"] == "cphclinf"
+        chain = gpu(Chain(Dense(model_params["nb_clinf"] , model_params["cph_hl_size"], relu),
+        Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], relu),
+        Dense(model_params["cph_hl_size"] , 1, sigmoid)))
+        opt = Flux.ADAM(model_params["cph_lr"])
+        model = dnn(chain, opt, cox_l2)
+
     elseif model_params["model_type"] == "cphdnn"
         chain = gpu(Chain(Dense(model_params["insize"] + model_params["nb_clinf"] , model_params["cph_hl_size"], relu),
         Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], relu),
@@ -272,10 +293,13 @@ function build(model_params)
         #enc_hl1 = gpu(Flux.Dense(model_params["insize"], ls2(2), relu))
         #enc_hl2 = gpu(Flux.Dense(ls2(2),ls2(1), relu))
         #redux_layer = gpu(Flux.Dense(ls2(1), model_params["dim_redux"], relu))
-        enc_hl1 = gpu(Flux.Dense(model_params["insize"], model_params["enc_hl1_size"], relu))
-        enc_hl2 = gpu(Flux.Dense(model_params["enc_hl1_size"],model_params["enc_hl2_size"], relu))
-        redux_layer = gpu(Flux.Dense(model_params["enc_hl2_size"], model_params["dim_redux"], relu))
-        encoder = gpu(Flux.Chain(enc_hl1, enc_hl2, redux_layer))
+        enc_hl1 = gpu(Flux.Dense(model_params["insize"], model_params["enc_hl_size"], relu))
+        enc_hls = []
+        for i in 1:model_params["enc_nb_hl"]
+            push!(enc_hls, gpu(Flux.Dense(model_params["enc_hl_size"],model_params["enc_hl_size"], relu)))
+        end
+        redux_layer = gpu(Flux.Dense(model_params["enc_hl_size"], model_params["dim_redux"], relu))
+        encoder = gpu(Flux.Chain(enc_hl1,enc_hls..., redux_layer))
         # cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"] + model_params["nb_clinf"], 1, sigmoid)))
         cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"]  + model_params["nb_clinf"] , model_params["cph_hl_size"], relu),
         Dense(model_params["cph_hl_size"] ,1, sigmoid)))#, model_params["cph_hl_size"], relu),
@@ -295,16 +319,22 @@ function build(model_params)
         model = mtl_AE(AE, clf, AE.encoder)
     elseif model_params["model_type"] == "mtl_cph_ae"
         enc_hl1 = gpu(Flux.Dense(model_params["insize"], model_params["enc_hl1_size"], relu))
-        enc_hl2 = gpu(Flux.Dense(model_params["enc_hl1_size"],model_params["enc_hl2_size"], relu))
+        enc_hls = []
+        for i in 1:model_params["enc_nb_hl"]
+            push!(enc_hls, gpu(Flux.Dense(model_params["enc_hl1_size"],model_params["enc_hl2_size"], relu)))
+        end 
         redux_layer = gpu(Flux.Dense(model_params["enc_hl2_size"], model_params["dim_redux"], relu))
-        encoder = Flux.Chain(enc_hl1, enc_hl2, redux_layer)
+        encoder = Flux.Chain(enc_hl1, enc_hls..., redux_layer)
         dec_hl1 = gpu(Flux.Dense(model_params["dim_redux"], model_params["dec_hl1_size"], relu))
-        dec_hl2 = gpu(Flux.Dense(model_params["dec_hl1_size"],model_params["dec_hl2_size"], relu))
+        dec_hls = []
+        for i in 1:model_params["dec_nb_hl"]
+            push!(dec_hls, gpu(Flux.Dense(model_params["dec_hl1_size"],model_params["dec_hl2_size"], relu)))
+        end 
         output_layer =  gpu(Flux.Dense(model_params["dec_hl2_size"], model_params["insize"], relu))
         AE = AE_model(
-            Flux.Chain(enc_hl1, enc_hl2, redux_layer, dec_hl1, dec_hl2, output_layer),
+            Flux.Chain(enc_hl1, enc_hls..., redux_layer, dec_hl1, dec_hls..., output_layer),
             encoder,
-            Flux.Chain(dec_hl1, dec_hl2, output_layer),
+            Flux.Chain(dec_hl1, dec_hls..., output_layer),
             output_layer,
             Flux.ADAM(model_params["ae_lr"]),
             mse_l2
@@ -562,6 +592,9 @@ end
 function to_cpu(model::mtl_AE)
     return mtl_AE(cpu(model.ae), cpu(model.clf), cpu(model.encoder))
 end 
+function to_cpu(model::dnn)
+    return dnn(cpu(model.model), model.opt, model.lossf)
+end
 
 function to_cpu(model::mtcphAE)
     return mtcphAE(cpu(model.ae), cpu(model.cph), cpu(model.encoder))
@@ -569,6 +602,7 @@ end
 function to_cpu(model::enccphdnn)
     return enccphdnn(cpu(model.encoder),cpu(model.cphdnn), model.opt, model.lossf)
 end 
+
 
 # define dump call back 
 function dump_model_cb(dump_freq, labels; export_type = ".png")

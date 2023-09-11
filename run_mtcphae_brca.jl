@@ -19,32 +19,35 @@ brca_prediction = BRCA_data(infile, minmax_norm = true)
 #brca_prediction = GDC_data_surv(TPM_data, case_ids, gene_names, subgroups, survt, surve) 
 #brca_prediction = GDC_data_surv("Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5";log_transf = true);
 
-function minmaxnorm(data, genes)
-    # remove unexpressed
-    genes = genes[vec(sum(data, dims = 1) .!= 0)]
-    data = data[:, vec(sum(data, dims = 1) .!= 0)]
-    # normalize
-    vmax = maximum(data, dims = 1)
-    vmin = minimum(data, dims = 1)
-    newdata = (data .- vmin) ./ (vmax .- vmin)
-    genes = genes[vec(var(newdata, dims = 1) .> 0.02)]
-    newdata = newdata[:, vec(var(newdata, dims = 1) .> 0.02)]
-    return newdata, genes 
-end 
 
-nfolds = 5
+nfolds, ae_nb_hls = 5, 1
 ##### MTAE for survival prediction
 brca_mtcphae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "mtl_cph_ae", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
 "nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
-"nfolds" => 5,  "nepochs" => 10_000, "mb_size" => 200, "ae_lr" => 1e-4, "wd" => 1e-1, "dim_redux" => 16, "enc_nb_hl" => 2, 
-"enc_hl1_size" => 128, "enc_hl2_size" => 128, "dec_nb_hl" => 2, "dec_hl1_size" => 128, "dec_hl2_size" => 128,
+"nfolds" => 5,  "nepochs" => 40_000, "mb_size" => 200, "ae_lr" => 1e-4, "wd" => 1e-1, "dim_redux" => 16, 
+"enc_hl_size" => 128, "dec_nb_hl" => ae_nb_hls, "dec_hl_size" => 128, "enc_nb_hl" =>ae_nb_hls, 
 "nb_clinf"=>5, "cph_lr" => 1e-4, "cph_nb_hl" => 1, "cph_hl_size" => 64)
 clinf = assemble_clinf(brca_prediction)
 dump_cb_brca = dump_model_cb(1000, labs_appdf(brca_prediction.stage), export_type = "pdf")
-validate_mtcphae!(brca_mtcphae_params, brca_prediction, dump_cb_brca)
+validate_mtcphae!(brca_mtcphae_params, brca_prediction, dummy_dump_cb)
+# implement dropout
+# implement hl nb selector DONE 
+# implement phase training
 
-model = build(brca_mtcphae_params)
+
+##### ST-CPHDNN on clinical (BENCHMARK)
+brca_cphdnn_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
+"model_type" => "enccphdnn", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
+"nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes), 
+ "nfolds" => 5,  "nepochs" => 10_000, "mb_size" => 400,"wd" => 1e-2, "enc_nb_hl" =>ae_nb_hls, "enc_hl_size" => 128, "dim_redux"=> 32, 
+"nb_clinf" => 5,"cph_lr" => 1e-4, "cph_nb_hl" => 2, "cph_hl_size" => 64)
+dump_cb_brca = dump_model_cb(1000, labs_appdf(brca_prediction.stage), export_type = "pdf")
+#validate_cphdnn_clinf!(brca_cphdnn_params, brca_prediction, dump_cb_brca, clinf)
+validate_enccphdnn!(brca_cphdnn_params, brca_prediction, dump_cb_brca, clinf)
+
+model = build(brca_cphdnn_params)
+
 to_cpu(model)
 model.cph.cphdnn
 cpu(model.encoder)
@@ -58,15 +61,16 @@ ordering = sortperm(-fold["Y_t_train"])
 train_x = gpu(Matrix(fold["train_x"][ordering,:]'));
 train_x_c = gpu(Matrix(fold["train_x_c"][ordering,:]'));
 
-train_y_t = gpu(Matrix(fold["Y_t_train"][order,:]'));
-train_y_e = gpu(Matrix(fold["Y_e_train"][order,:]'));
+train_y_t = gpu(Matrix(fold["Y_t_train"][ordering,:]'));
+train_y_e = gpu(Matrix(fold["Y_e_train"][ordering,:]'));
 NE_frac_tr = sum(train_y_e .== 1) != 0 ? 1 / sum(train_y_e .== 1) : 0
 train_x
 train_x_c
 folds[1]["train_x_c"]
 model.cph.encoder(train_x)
 model.cph.lossf(model.cph, train_x, train_x_c, train_y_e, NE_frac_tr, brca_mtcphae_params["wd"])
-
+model.encoder(train_x)
+model.lossf(model, train_x, train_x_c, train_y_e, NE_frac_tr, brca_cphdnn_params["wd"])
 #### TESTS
 OUTS = vec(cpu(model.cph.model(gpu(test_x))))
 groups = ["low_risk" for i in 1:length(OUTS)]    
