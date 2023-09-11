@@ -148,8 +148,10 @@ function l2_penalty(model::Flux.Chain)
 end
 function l2_penalty(model::enccphdnn)
     l2_sum = 0
-    for wm in Flux.Chain(model.encoder...,model.cphdnn...)
-        l2_sum += sum(abs2, wm.weight)
+    for wm in Flux.Chain(model.cphdnn...)
+        if !isa(wm, Dropout) 
+            l2_sum += sum(abs2, wm.weight)
+        end
     end 
     return l2_sum
 end
@@ -172,7 +174,9 @@ end
 function l2_penalty(model::AE_model)
     l2_sum = 0 
     for wm in model.encoder
-        l2_sum += sum(abs2, wm.weight)
+        if !isa(wm, Dropout) 
+            l2_sum += sum(abs2, wm.weight)
+        end
     end 
     for wm in model.decoder
         l2_sum += sum(abs2, wm.weight)
@@ -305,8 +309,8 @@ function build(model_params)
             Flux.ADAM(model_params["ae_lr"]),
             mse_l2
         )
-        cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"]  + model_params["nb_clinf"] , model_params["cph_hl_size"], relu),
-        Dense(model_params["cph_hl_size"] ,1, tanh)))#, model_params["cph_hl_size"], relu),
+        cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"]  + model_params["nb_clinf"] , model_params["cph_hl_size"], tanh),
+        Dense(model_params["cph_hl_size"] ,1, identity; bias =false)))#, model_params["cph_hl_size"], relu),
         cph_opt = Flux.ADAM(model_params["cph_lr"])
         enccphdnn_model = enccphdnn(encoder, cphdnn, cph_opt, cox_l2)
         model = mtcphAE(AE, enccphdnn_model, AE.encoder)

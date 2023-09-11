@@ -14,22 +14,34 @@ brca_fpkm = CSV.read("Data/GDC_processed/TCGA-BRCA.htseq_fpkm.tsv", DataFrame)
 CLIN_FULL = CSV.read("Data/GDC_processed/GDC_clinical_raw.tsv", DataFrame)
 # brca_prediction, infile = assemble_BRCA_data(CLIN_FULL, brca_fpkm_df)
 infile = "Data/GDC_processed/TCGA_BRCA_surv_cf_fpkm.h5"
-brca_prediction = BRCA_data(infile)
-
+brca_prediction = BRCA_data(infile, minmax_norm = true)
+    
 #brca_prediction = GDC_data_surv(TPM_data, case_ids, gene_names, subgroups, survt, surve) 
 #brca_prediction = GDC_data_surv("Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5";log_transf = true);
 
+function minmaxnorm(data, genes)
+    # remove unexpressed
+    genes = genes[vec(sum(data, dims = 1) .!= 0)]
+    data = data[:, vec(sum(data, dims = 1) .!= 0)]
+    # normalize
+    vmax = maximum(data, dims = 1)
+    vmin = minimum(data, dims = 1)
+    newdata = (data .- vmin) ./ (vmax .- vmin)
+    genes = genes[vec(var(newdata, dims = 1) .> 0.02)]
+    newdata = newdata[:, vec(var(newdata, dims = 1) .> 0.02)]
+    return newdata, genes 
+end 
 
 nfolds = 5
 ##### MTAE for survival prediction
 brca_mtcphae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "mtl_cph_ae", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
 "nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
-"nfolds" => 5,  "nepochs" => 10_000, "mb_size" => 50, "ae_lr" => 1e-4, "wd" => 1e-1, "dim_redux" => 32, "enc_nb_hl" => 2, 
-"enc_hl1_size" => 128, "enc_hl2_size" => 128, "dec_nb_hl" => 2, "dec_hl1_size" => 128, "dec_hl2_size" => 128,"clf_nb_hl" => 2, "clf_hl_size"=> 128,
-"nb_clinf"=>5, "cph_lr" => 1e-3, "cph_nb_hl" => 1, "cph_hl_size" => 64)
+"nfolds" => 5,  "nepochs" => 10_000, "mb_size" => 200, "ae_lr" => 1e-4, "wd" => 1e-1, "dim_redux" => 16, "enc_nb_hl" => 2, 
+"enc_hl1_size" => 128, "enc_hl2_size" => 128, "dec_nb_hl" => 2, "dec_hl1_size" => 128, "dec_hl2_size" => 128,
+"nb_clinf"=>5, "cph_lr" => 1e-4, "cph_nb_hl" => 1, "cph_hl_size" => 64)
 clinf = assemble_clinf(brca_prediction)
-dump_cb_brca = dump_model_cb(100, labs_appdf(brca_prediction.stage), export_type = "pdf")
+dump_cb_brca = dump_model_cb(1000, labs_appdf(brca_prediction.stage), export_type = "pdf")
 validate_mtcphae!(brca_mtcphae_params, brca_prediction, dump_cb_brca)
 
 model = build(brca_mtcphae_params)
@@ -43,7 +55,7 @@ fold = folds[1]
 device!()
 wd = brca_mtcphae_params["wd"]
 ordering = sortperm(-fold["Y_t_train"])
-train_x = gpu(Matrix(fold["train_x"][order,:]'));
+train_x = gpu(Matrix(fold["train_x"][ordering,:]'));
 train_x_c = gpu(Matrix(fold["train_x_c"][ordering,:]'));
 
 train_y_t = gpu(Matrix(fold["Y_t_train"][order,:]'));

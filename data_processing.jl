@@ -271,9 +271,12 @@ function write_h5(dat::BRCA_data, outfile)
     
     close(f)
 end 
-function BRCA_data(infile::String)
+function BRCA_data(infile::String; minmax_norm = false)
     inf = h5open(infile, "r")
     data, samples, genes, survt, surve,age, stage, ethnicity = inf["data"][:,:], inf["samples"][:], inf["genes"][:], inf["survt"][:], inf["surve"][:], inf["age"][:], inf["stage"][:], inf["ethnicity"][:]
+    if minmax_norm
+        data, genes = minmaxnorm(data, genes)
+    end 
     brca_prediction = BRCA_data(data, samples, genes, survt, surve,age, stage, ethnicity)
     close(inf)
     return brca_prediction 
