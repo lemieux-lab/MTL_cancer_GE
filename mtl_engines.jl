@@ -346,7 +346,11 @@ function build(model_params)
             Flux.ADAM(model_params["ae_lr"]),
             mse_l2
             )
-        cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"]  + model_params["nb_clinf"] , model_params["cph_hl_size"], tanh),
+        cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"]  + model_params["nb_clinf"] , model_params["cph_hl_size"], leakyrelu),
+        Dense(model_params["cph_hl_size"] ,model_params["cph_hl_size"], leakyrelu),
+        Dense(model_params["cph_hl_size"] ,model_params["cph_hl_size"], leakyrelu),
+        Dense(model_params["cph_hl_size"] ,model_params["cph_hl_size"], leakyrelu),
+        Dense(model_params["cph_hl_size"] ,model_params["cph_hl_size"], leakyrelu),
         Dense(model_params["cph_hl_size"] ,1, identity; bias =false)))#, model_params["cph_hl_size"], relu),
         cph_opt = Flux.ADAM(model_params["cph_lr"])
         enccphdnn_model = enccphdnn(encoder, cphdnn, cph_opt, cox_l2)
