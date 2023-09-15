@@ -265,7 +265,7 @@ function build(model_params)
         lossf = crossentropy_l2
         model = dnn(chain, opt, lossf)
     elseif model_params["model_type"] == "cphclinf"
-        chain = gpu(Dense(model_params["nb_clinf"], 1, sigmoid, bias = false))
+        chain = gpu(Chain(Dense(model_params["nb_clinf"], 1, sigmoid, bias = false)))
         opt = Flux.ADAM(model_params["cph_lr"])
         model = dnn(chain, opt, cox_l2)
 
