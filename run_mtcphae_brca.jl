@@ -20,17 +20,17 @@ clinf = assemble_clinf(brca_prediction)
 #brca_prediction = GDC_data_surv("Data/GDC_processed/TCGA_BRCA_TPM_lab_surv.h5";log_transf = true);
 
 
-nfolds, ae_nb_hls = 5, 2
+nfolds, ae_nb_hls = 5, 1
 ##### MTAE for survival prediction
 brca_mtcphae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "mtl_cph_ae", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
 "nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
-"nfolds" => 5,  "nepochs" => 40_000, "mb_size" => 200, "ae_lr" => 1e-4, "wd" => 1e-1, "dim_redux" => 16, 
+"nfolds" => 5,  "nepochs" => 3_000, "mb_size" => 200, "ae_lr" => 1e-3, "wd" => 1e-6, "dim_redux" => 2, 
 "enc_hl_size" => 128, "dec_nb_hl" => ae_nb_hls, "dec_hl_size" => 128, "enc_nb_hl" =>ae_nb_hls, 
 "nb_clinf"=>5, "cph_lr" => 1e-4, "cph_nb_hl" => 1, "cph_hl_size" => 64)
 clinf = assemble_clinf(brca_prediction)
 dump_cb_brca = dump_model_cb(1000, labs_appdf(brca_prediction.stage), export_type = "pdf")
-validate_mtcphae!(brca_mtcphae_params, brca_prediction, dummy_dump_cb)
+validate_mtcphae!(brca_mtcphae_params, brca_prediction, dummy_dump_cb, clinf)
 # implement dropout
 # implement hl nb selector DONE 
 # implement phase training

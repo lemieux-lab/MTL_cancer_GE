@@ -284,9 +284,14 @@ function minmaxnorm(data, genes)
     return newdata, genes 
 end 
 
-function BRCA_data(infile::String; minmax_norm = false)
+function BRCA_data(infile::String; minmax_norm = false, remove_unexpressed=false)
     inf = h5open(infile, "r")
     data, samples, genes, survt, surve,age, stage, ethnicity = inf["data"][:,:], inf["samples"][:], inf["genes"][:], inf["survt"][:], inf["surve"][:], inf["age"][:], inf["stage"][:], inf["ethnicity"][:]
+    if remove_unexpressed
+        expressed = vec(sum(data, dims = 1) .!= 0)
+        data = data[:,findall(expressed)]
+        genes = genes[findall(expressed)]
+    end 
     if minmax_norm
         data, genes = minmaxnorm(data, genes)
     end 
