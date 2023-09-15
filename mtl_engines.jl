@@ -265,6 +265,11 @@ function build(model_params)
         lossf = crossentropy_l2
         model = dnn(chain, opt, lossf)
     elseif model_params["model_type"] == "cphclinf"
+        chain = gpu(Dense(model_params["nb_clinf"], 1, sigmoid, bias = false))
+        opt = Flux.ADAM(model_params["cph_lr"])
+        model = dnn(chain, opt, cox_l2)
+
+    elseif model_params["model_type"] == "cphdnnclinf"
         chain = gpu(Chain(Dense(model_params["nb_clinf"] , model_params["cph_hl_size"], relu),
         Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], relu),
         Dense(model_params["cph_hl_size"] , 1, sigmoid)))
@@ -300,9 +305,9 @@ function build(model_params)
         end
         redux_layer = gpu(Flux.Dense(model_params["enc_hl_size"], model_params["dim_redux"], relu))
         encoder = gpu(Flux.Chain(enc_hl1,enc_hls..., redux_layer))
-        cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"] + model_params["nb_clinf"], 1, sigmoid;bias = false)))
-        # cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"]  + model_params["nb_clinf"] , model_params["cph_hl_size"], relu),
-        # Dense(model_params["cph_hl_size"] ,1, sigmoid)))#, model_params["cph_hl_size"], relu),
+        #cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"] + model_params["nb_clinf"], 1, identity;bias = false)))
+        cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"]  + model_params["nb_clinf"] , model_params["cph_hl_size"], tanh),
+        Dense(model_params["cph_hl_size"] ,1, identity, bias=false)))#, model_params["cph_hl_size"], relu),
         #Dense(model_params["cph_hl_size"] , 1, sigmoid))) 
         opt = Flux.ADAM(model_params["cph_lr"])
         model = enccphdnn(encoder, cphdnn, opt, cox_l2)
