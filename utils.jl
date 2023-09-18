@@ -37,7 +37,7 @@ end
 function stringify(p::Dict;spacer = 80)  
     s = join(["$key: $val" for (key, val) in p], ", ")
     for i in collect(spacer:spacer:length(s))
-        s = "$(s[1:i])\n$(s[i:end])"
+        s = "$(s[1:i])\n$(s[i + 1:end])"
     end
     return s 
 end 

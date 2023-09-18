@@ -16,16 +16,75 @@ clinf = assemble_clinf(brca_prediction)
 
 sum(sum(brca_prediction.data, dims = 1) .== 0)
 nfolds, ae_nb_hls = 5, 1
-##### MTAE for survival prediction
-brca_ae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
-"model_type" => "auto_encoder", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
-"nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
-"nfolds" => 5,  "nepochs" => 3_000, "mb_size" => 200, "ae_lr" => 1e-3, "wd" => 1e-6, "dim_redux" => 2, 
-"enc_hl_size" => 128, "dec_nb_hl" => ae_nb_hls, "dec_hl_size" => 128, "enc_nb_hl" =>ae_nb_hls, 
-"nb_clinf"=>5, "cph_lr" => 1e-4, "cph_nb_hl" => 1, "cph_hl_size" => 64)
-dump_cb_brca = dump_model_cb(1000, labs_appdf(brca_prediction.stage), export_type = "pdf")
-#model = build(brca_ae_params)
-outs, test_xs, model, train_x, test_x = validate_auto_encoder!(brca_ae_params, brca_prediction, dump_cb_brca, clinf) 
+dim_redux_sizes = [1,2,3,4,5,10,15,20,30,50,100,200,300,500,1000,2000, 5000]
+train_corrs = []
+tst_corrs = []
+nepochs = 3000
+for (i,dim_redux) in enumerate(dim_redux_sizes)
+    ##### AE only BRCA
+    brca_ae_params = Dict("model_title"=>"AE_BRCA_DIM_REDUX_$dim_redux", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
+    "model_type" => "auto_encoder", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
+    "nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
+    "nfolds" => 5,  "nepochs" => nepochs, "mb_size" => 200, "ae_lr" => 1e-3, "wd" => 1e-6, "dim_redux" => dim_redux, 
+    "enc_hl_size" => 128, "dec_nb_hl" => ae_nb_hls, "dec_hl_size" => 128, "enc_nb_hl" =>ae_nb_hls, 
+    "nb_clinf"=>5, "cph_lr" => 1e-4, "cph_nb_hl" => 1, "cph_hl_size" => 64)
+    dump_cb_brca = dump_model_cb(1000, labs_appdf(brca_prediction.stage), export_type = "pdf")
+    #model = build(brca_ae_params)
+    outs, test_xs, model, train_x, test_x = validate_auto_encoder!(brca_ae_params, brca_prediction, dump_cb_brca, clinf) 
+    ae_cor_train =  my_cor(vec(train_x), vec(model.net(train_x)))
+    ae_cor_test = my_cor(vec(test_x), vec(model.net(test_x)))
+    push!(train_corrs, ae_cor_train)
+    push!(tst_corrs, ae_cor_test)
+    ### Update benchmark figure
+    fig = Figure(resolution = (1024, 512));
+    ax = Axis(fig[1,1];xticks=(log10.(dim_redux_sizes), ["$x" for x in dim_redux_sizes]), xlabel = "Bottleneck layer size (log10 scale)",ylabel = "Test set reconstruction \n(Pearson Correlation)", title = "Performance of Auto-Encoder on BRCA gene expression profile by bottleneck layer size")
+    test_points = zeros(length(dim_redux_sizes))
+    train_points = zeros(length(dim_redux_sizes))
+    test_points[1:i] .= tst_corrs
+    train_points[1:i] .= train_corrs
+    scatter!(fig[1,1], log10.(dim_redux_sizes), test_points, color = "blue", label = "test")
+    scatter!(fig[1,1], log10.(dim_redux_sizes), train_points, color = "red", label = "train")
+    lines!(fig[1,1], log10.(dim_redux_sizes), test_points, color = "blue", linestyle = "--")
+    lines!(fig[1,1], log10.(dim_redux_sizes), train_points, color = "red", linestyle = "--")
+    
+    Label(fig[2,1], "𝗣𝗮𝗿𝗮𝗺𝗲𝘁𝗲𝗿𝘀 $(stringify(brca_ae_params))")
+    axislegend(ax, position = :rb)
+    CairoMakie.save("$outpath/AE_BRCA_BY_DIM_REDUX.pdf", fig)
+    ### Provide hexbin of true vs predicted expr. profiles
+    fig = Figure(resolution = (1024,1024));
+    ax = Axis(fig[1,1];xlabel="Predicted", ylabel = "True Expr.", title = "Predicted vs True of $(brca_ae_params["ngenes"]) Genes Expression Profile TCGA BRCA with AE \n$(round(ae_cor_test;digits =3))", aspect = DataAspect())
+    hexbin!(fig[1,1], outs, test_xs, cellsize=(0.02, 0.02), colormap=cgrad([:grey,:yellow], [0.00000001, 0.1]))
+    CairoMakie.save("$outpath/AE_BRCA_SCATTER_DIM_REDUX_$dim_redux.pdf", fig)
+end 
+dim_redux = 2 
+##### AE only BRCA
+ brca_ae_params = Dict("model_title"=>"AE_BRCA_DIM_REDUX_$dim_redux", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
+ "model_type" => "auto_encoder", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
+ "nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
+ "nfolds" => 5,  "nepochs" => nepochs, "mb_size" => 200, "ae_lr" => 1e-3, "wd" => 1e-6, "dim_redux" => dim_redux, 
+ "enc_hl_size" => 128, "dec_nb_hl" => ae_nb_hls, "dec_hl_size" => 128, "enc_nb_hl" =>ae_nb_hls, 
+ "nb_clinf"=>5, "cph_lr" => 1e-4, "cph_nb_hl" => 1, "cph_hl_size" => 64)
+ dump_cb_brca = dump_model_cb(1000, labs_appdf(brca_prediction.stage), export_type = "pdf")
+ #model = build(brca_ae_params)
+ outs, test_xs, model, train_x, test_x = validate_auto_encoder!(brca_ae_params, brca_prediction, dump_cb_brca, clinf) 
+
+ dim_redux_sizes = [1,2,3,4,5,10,15,20,30,40,50,75,100,200,300,500,1000,2000]
+i = 1
+ train_corrs = []
+tst_corrs = []
+ ae_cor_train =  my_cor(vec(train_x), vec(model.net(train_x)))
+ ae_cor_test = my_cor(vec(test_x), vec(model.net(test_x)))
+ push!(train_corrs, ae_cor_train)
+ push!(tst_corrs, ae_cor_test)
+ ### Update benchmark figure
+ fig = Figure(resolution = (1024,512));
+
+ ax = Axis(fig[1,1];xticks=(log10.(dim_redux_sizes), ["$x" for x in dim_redux_sizes]), xlabel = "Bottleneck layer size (log10 scale)",ylabel = "Test set reconstruction \n(Pearson Correlation)", title = "Performance of Auto-Encoder on BRCA gene expression profile by bottleneck layer size")
+ data_points = zeros(length(dim_redux_sizes))
+ data_points[1:i] .= tst_corrs
+ scatter!(fig[1,1], log10.(dim_redux_sizes), data_points, color = "blue")
+ lines!(fig[1,1], log10.(dim_redux_sizes), data_points, color = "black", linestyle = "--")
+fig 
 
 df = DataFrame(:outs=>outs, :true_x=>test_xs)
 fig = Figure(resolution = (1024,1024));

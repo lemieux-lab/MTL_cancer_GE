@@ -1,3 +1,5 @@
+using Pkg
+Pkg.activate(".")
 # survival data 
 include("init.jl") # first time connect is slow
 Pkg.instantiate() # should be quick! 
@@ -36,7 +38,7 @@ validate_mtcphae!(brca_mtcphae_params, brca_prediction, dump_cb_brca, clinf)
 # implement phase training
 
 ##### ST-CPH-ridge on clinical (BENCHMARK)
-    brca_cphclinf_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
+brca_cphclinf_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "cphclinf", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
 "nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes), 
  "nfolds" => 5,  "nepochs" => 10_000, "mb_size" => 50,"wd" => 1e-3, "enc_nb_hl" =>ae_nb_hls, "enc_hl_size" => 128, "dim_redux"=> 1, 
