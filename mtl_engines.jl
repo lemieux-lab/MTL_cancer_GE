@@ -171,21 +171,21 @@ function l2_penalty(model::FE_model)
     return sum(abs2, model.embed_1.weight) + sum(abs2, model.embed_2.weight) + sum(abs2, model.hl1.weight) + sum(abs2, model.hl2.weight)
 end
 
-# function l2_penalty(model::AE_model)
-#     l2_sum = 0 
-#     for wm in model.encoder
-#         if !isa(wm, Dropout) 
-#             l2_sum += sum(abs2, wm.weight)
-#         end
-#     end 
-#     for wm in model.decoder
-#         l2_sum += sum(abs2, wm.weight)
-#     end 
-#     return l2_sum 
-# end
 function l2_penalty(model::AE_model)
-    return sum(abs2, model.encoder[end].weight)
-end 
+    l2_sum = 0 
+    for wm in model.encoder
+        if !isa(wm, Dropout) 
+            l2_sum += sum(abs2, wm.weight)
+        end
+    end 
+    for wm in model.decoder
+        l2_sum += sum(abs2, wm.weight)
+    end 
+    return l2_sum 
+end
+# function l2_penalty(model::AE_model)
+#     return sum(abs2, model.encoder[end].weight)
+# end 
 ####### Loss functions
 function mse_l2(model::AE_model, X, Y;weight_decay = 1e-6)
     return Flux.mse(model.net(X), Y) + l2_penalty(model) * weight_decay
@@ -250,6 +250,9 @@ function layer_size(insize, dim_redux;nb_hl=2)
     x2, y2 = nb_hl + 1,insize
     f(x::Int) = Int(floor(sqrt(x * (y2 - y1) / (x2 - x1)))) + y1 
     return f 
+end 
+function compute_c(insize, bn_size, nb_hl)
+    return ( insize / bn_size) ^ (1/ (nb_hl + 1) )
 end 
 ####
 function build(model_params)
@@ -325,59 +328,53 @@ function build(model_params)
         clf = dnn(clf_chain, clf_opt, clf_lossf)
         model = mtl_AE(AE, clf, AE.encoder)
     elseif model_params["model_type"] == "mtl_cph_ae"
-        enc_hl1 = gpu(Flux.Dense(model_params["insize"], model_params["enc_hl_size"],leakyrelu))
+        c = compute_c(model_params["insize"], model_params["dim_redux"], model_params["enc_nb_hl"] )
         enc_hls = []
+        hl_sizes = [Int(floor(model_params["dim_redux"] * c ^ x)) for x in 1:model_params["enc_nb_hl"]]
         for i in 1:model_params["enc_nb_hl"]
-            push!(enc_hls, gpu(Flux.Dense(model_params["enc_hl_size"],model_params["enc_hl_size"], leakyrelu)))
+            in_size = i == 1 ? model_params["insize"] : reverse(hl_sizes)[i - 1]
+            out_size = reverse(hl_sizes)[i]
+            push!(enc_hls, gpu(Flux.Dense(in_size, out_size, leakyrelu)))
         end 
-        redux_layer = gpu(Flux.Dense(model_params["enc_hl_size"], model_params["dim_redux"], leakyrelu))
-        encoder = Flux.Chain(enc_hl1, enc_hls..., redux_layer)
-        dec_hl1 = gpu(Flux.Dense(model_params["dim_redux"], model_params["dec_hl_size"], leakyrelu))
+        redux_layer = gpu(Flux.Dense(reverse(hl_sizes)[end], model_params["dim_redux"], leakyrelu))
+        encoder = Flux.Chain(enc_hls..., redux_layer)
         dec_hls = []
-        for i in 1:model_params["dec_nb_hl"]
-            push!(dec_hls, gpu(Flux.Dense(model_params["dec_hl_size"],model_params["dec_hl_size"], leakyrelu)))
-        end 
-        output_layer =  gpu(Flux.Dense(model_params["dec_hl_size"], model_params["insize"], leakyrelu))
-        AE = AE_model(
-            Flux.Chain(enc_hl1, enc_hls..., redux_layer, dec_hl1, dec_hls..., output_layer),
-            encoder,
-            Flux.Chain(dec_hl1, dec_hls..., output_layer),
-            output_layer,
-            Flux.ADAM(model_params["ae_lr"]),
-            mse_l2
-            )
+        for i in 1:model_params["enc_nb_hl"]
+            in_size = i == 1 ? model_params["dim_redux"] : hl_sizes[i - 1]
+            out_size = hl_sizes[i]
+            push!(dec_hls, gpu(Flux.Dense(in_size, out_size, leakyrelu)))
+        end
+        output_layer = gpu(Flux.Dense(hl_sizes[end], model_params["insize"], leakyrelu))
+        decoder = Flux.Chain(dec_hls..., output_layer)
+        ae_chain = Flux.Chain(enc_hls..., redux_layer, dec_hls..., output_layer)
+        AE = AE_model(ae_chain, encoder, decoder, output_layer, Flux.ADAM(model_params["ae_lr"]), mse_l2) 
         cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"]  + model_params["nb_clinf"] , model_params["cph_hl_size"], leakyrelu),
-        Dense(model_params["cph_hl_size"] ,model_params["cph_hl_size"], leakyrelu),
-        Dense(model_params["cph_hl_size"] ,model_params["cph_hl_size"], leakyrelu),
-        Dense(model_params["cph_hl_size"] ,model_params["cph_hl_size"], leakyrelu),
         Dense(model_params["cph_hl_size"] ,model_params["cph_hl_size"], leakyrelu),
         Dense(model_params["cph_hl_size"] ,1, identity; bias =false)))#, model_params["cph_hl_size"], relu),
         cph_opt = Flux.ADAM(model_params["cph_lr"])
         enccphdnn_model = enccphdnn(encoder, cphdnn, cph_opt, cox_l2)
         model = mtcphAE(AE, enccphdnn_model, AE.encoder)
     elseif model_params["model_type"] == "auto_encoder"
-        enc_hl1 = gpu(Flux.Dense(model_params["insize"], model_params["enc_hl_size"],leakyrelu))
+        c = compute_c(model_params["insize"], model_params["dim_redux"], model_params["enc_nb_hl"] )
         enc_hls = []
+        hl_sizes = [Int(floor(model_params["dim_redux"] * c ^ x)) for x in 1:model_params["enc_nb_hl"]]
         for i in 1:model_params["enc_nb_hl"]
-            push!(enc_hls, gpu(Flux.Dense(model_params["enc_hl_size"],model_params["enc_hl_size"], leakyrelu)))
+            in_size = i == 1 ? model_params["insize"] : reverse(hl_sizes)[i - 1]
+            out_size = reverse(hl_sizes)[i]
+            push!(enc_hls, gpu(Flux.Dense(in_size, out_size, leakyrelu)))
         end 
-        redux_layer = gpu(Flux.Dense(model_params["enc_hl_size"], model_params["dim_redux"], leakyrelu))
-        encoder = Flux.Chain(enc_hl1, enc_hls..., redux_layer)
-        dec_hl1 = gpu(Flux.Dense(model_params["dim_redux"], model_params["dec_hl_size"], leakyrelu))
+        redux_layer = gpu(Flux.Dense(reverse(hl_sizes)[end], model_params["dim_redux"], leakyrelu))
+        encoder = Flux.Chain(enc_hls..., redux_layer)
         dec_hls = []
-        for i in 1:model_params["dec_nb_hl"]
-            push!(dec_hls, gpu(Flux.Dense(model_params["dec_hl_size"],model_params["dec_hl_size"], leakyrelu)))
-        end 
-        output_layer =  gpu(Flux.Dense(model_params["dec_hl_size"], model_params["insize"], leakyrelu))
-        model = AE_model(
-            Flux.Chain(enc_hl1, enc_hls..., redux_layer, dec_hl1, dec_hls..., output_layer),
-            encoder,
-            Flux.Chain(dec_hl1, dec_hls..., output_layer),
-            output_layer,
-            Flux.ADAM(model_params["ae_lr"]),
-            mse_l2
-            )
-        
+        for i in 1:model_params["enc_nb_hl"]
+            in_size = i == 1 ? model_params["dim_redux"] : hl_sizes[i - 1]
+            out_size = hl_sizes[i]
+            push!(dec_hls, gpu(Flux.Dense(in_size, out_size, leakyrelu)))
+        end
+        output_layer = gpu(Flux.Dense(hl_sizes[end], model_params["insize"], leakyrelu))
+        decoder = Flux.Chain(dec_hls..., output_layer)
+        ae_chain = Flux.Chain(enc_hls..., redux_layer, dec_hls..., output_layer)
+        model = AE_model(ae_chain, encoder, decoder, output_layer, Flux.ADAM(model_params["ae_lr"]), mse_l2)        
     end 
     return model 
 end

@@ -27,9 +27,9 @@ nfolds, ae_nb_hls = 5, 1
 brca_mtcphae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "mtl_cph_ae", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
 "nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
-"nfolds" => 5,  "nepochs" => 5_000, "mb_size" => 200, "ae_lr" => 1e-3, "wd" => 1e-1, "dim_redux" => 64, 
+"nfolds" => 5,  "nepochs" => 5_000, "mb_size" => 200, "ae_lr" => 0, "ae_wd" => 5e-5, "cph_wd" => 1e-1, "dim_redux" => 100, 
 "enc_hl_size" => 128, "dec_nb_hl" => ae_nb_hls, "dec_hl_size" => 128, "enc_nb_hl" =>ae_nb_hls, 
-"nb_clinf"=>5, "cph_lr" => 1e-5, "cph_nb_hl" => 2, "cph_hl_size" => 128)
+"nb_clinf"=>5, "cph_lr" => 1e-4, "cph_nb_hl" => 2, "cph_hl_size" => 64)
 clinf = assemble_clinf(brca_prediction)
 dump_cb_brca = dump_model_cb(1000, labs_appdf(brca_prediction.stage), export_type = "pdf")
 validate_mtcphae!(brca_mtcphae_params, brca_prediction, dump_cb_brca, clinf)
