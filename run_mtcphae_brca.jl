@@ -27,7 +27,7 @@ nfolds, ae_nb_hls = 5, 1
 brca_mtcphae_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "mtl_cph_ae", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
 "nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
-"nfolds" => 5,  "nepochs" => 5_000, "mb_size" => 200, "ae_lr" => 0, "ae_wd" => 5e-5, "cph_wd" => 1e-1, "dim_redux" => 100, 
+"nfolds" => 5,  "nepochs" => 5_000, "mb_size" => 200, "ae_lr" => 1e-3, "ae_wd" => 5e-5, "cph_wd" => 1e-3, "dim_redux" => 1, 
 "enc_hl_size" => 128, "dec_nb_hl" => ae_nb_hls, "dec_hl_size" => 128, "enc_nb_hl" =>ae_nb_hls, 
 "nb_clinf"=>5, "cph_lr" => 1e-4, "cph_nb_hl" => 2, "cph_hl_size" => 64)
 clinf = assemble_clinf(brca_prediction)
@@ -50,14 +50,17 @@ validate_cphdnn_clinf!(brca_cphclinf_params, brca_prediction, dummy_dump_cb, cli
 
 
 ##### ST-CPHDNN on clinical (BENCHMARK)
+brca_prediction.data
+noise_size = 100
+brca_prediction_NOISE = BRCA_data(reshape(rand(1050 *noise_size), (1050,noise_size)),brca_prediction.samples, brca_prediction.genes, brca_prediction.survt,brca_prediction.surve,brca_prediction.age, brca_prediction.stage, brca_prediction.ethnicity)
 brca_cphdnnclinf_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "cphdnnclinf", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
-"nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes), 
- "nfolds" => 5,  "nepochs" => 10_000, "mb_size" => 50,"wd" => 1e-3, "enc_nb_hl" =>ae_nb_hls, "enc_hl_size" => 128, "dim_redux"=> 1, 
-"nb_clinf" => 5,"cph_lr" => 1e-3, "cph_nb_hl" => 2, "cph_hl_size" => 128)
+"nsamples" => length(brca_prediction.samples) , "insize" => noise_size, 
+ "nfolds" => 5,  "nepochs" => 5_000, "mb_size" => 50,"wd" =>  2e-2, "enc_nb_hl" =>ae_nb_hls, "enc_hl_size" => 128, "dim_redux"=> 1, 
+"nb_clinf" => 5,"cph_lr" => 1e-4, "cph_nb_hl" => 2, "cph_hl_size" => 32)
 dump_cb_brca = dump_model_cb(1000, labs_appdf(brca_prediction.stage), export_type = "pdf")
 #validate_cphdnn_clinf!(brca_cphdnn_params, brca_prediction, dump_cb_brca, clinf)
-validate_cphdnn_clinf!(brca_cphdnnclinf_params, brca_prediction, dummy_dump_cb, clinf)
+validate_cphdnn_clinf!(brca_cphdnnclinf_params, brca_prediction_NOISE, dummy_dump_cb, clinf)
 
 
 

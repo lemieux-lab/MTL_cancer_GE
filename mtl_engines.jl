@@ -222,7 +222,7 @@ function cox_nll_vec(mdl::dnn, X_, Y_e_, NE_frac)
     return neg_likelihood
 end 
 function cox_nll_vec(mdl::dnn, X_, X_c_, Y_e_, NE_frac)
-    outs = vec(mdl.model( X_c_))
+    outs = vec(mdl.model( vcat(X_, X_c_)))
     #outs = vec(mdl.cphdnn(mdl.encoder(X_)))
     hazard_ratios = exp.(outs)
     log_risk = log.(cumsum(hazard_ratios))
@@ -275,16 +275,16 @@ function build(model_params)
         model = dnn(chain, opt, cox_l2)
 
     elseif model_params["model_type"] == "cphdnnclinf"
-        chain = gpu(Chain(Dense(model_params["nb_clinf"] , model_params["cph_hl_size"], relu),
-        Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], relu),
-        Dense(model_params["cph_hl_size"] , 1, sigmoid)))
+        chain = gpu(Chain(Dense(model_params["insize"] + model_params["nb_clinf"] , model_params["cph_hl_size"], leakyrelu),
+        #Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], leakyrelu),
+        Dense(model_params["cph_hl_size"] , 1, sigmoid, bias = false)))
         opt = Flux.ADAM(model_params["cph_lr"])
         model = dnn(chain, opt, cox_l2)
 
     elseif model_params["model_type"] == "cphdnn"
-        chain = gpu(Chain(Dense(model_params["insize"] + model_params["nb_clinf"] , model_params["cph_hl_size"], relu),
-        Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], relu),
-        Dense(model_params["cph_hl_size"] , 1, sigmoid)))
+        chain = gpu(Chain(Dense(model_params["insize"] + model_params["nb_clinf"] , model_params["cph_hl_size"], leakyrelu),
+        #Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], relu),
+        Dense(model_params["cph_hl_size"] , 1, sigmoid, bias = false)))
         opt = Flux.ADAM(model_params["cph_lr"])
         model = dnn(chain, opt, cox_l2)
     elseif model_params["model_type"] == "mtl_FE"
@@ -349,8 +349,8 @@ function build(model_params)
         ae_chain = Flux.Chain(enc_hls..., redux_layer, dec_hls..., output_layer)
         AE = AE_model(ae_chain, encoder, decoder, output_layer, Flux.ADAM(model_params["ae_lr"]), mse_l2) 
         cphdnn = gpu(Flux.Chain(Dense(model_params["dim_redux"]  + model_params["nb_clinf"] , model_params["cph_hl_size"], leakyrelu),
-        Dense(model_params["cph_hl_size"] ,model_params["cph_hl_size"], leakyrelu),
-        Dense(model_params["cph_hl_size"] ,1, identity; bias =false)))#, model_params["cph_hl_size"], relu),
+        #Dense(model_params["cph_hl_size"] ,model_params["cph_hl_size"], leakyrelu),
+        Dense(model_params["cph_hl_size"] ,1, sigmoid; bias =false)))#, model_params["cph_hl_size"], relu),
         cph_opt = Flux.ADAM(model_params["cph_lr"])
         enccphdnn_model = enccphdnn(encoder, cphdnn, cph_opt, cox_l2)
         model = mtcphAE(AE, enccphdnn_model, AE.encoder)
