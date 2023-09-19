@@ -51,6 +51,7 @@ validate_cphdnn_clinf!(brca_cphclinf_params, brca_prediction, dummy_dump_cb, cli
 
 ##### ST-CPHDNN on clinical (BENCHMARK)
 noise_sizes = [1,2,3,4,5,10,15,20,30,40,50,75,100,200]
+noise_sizes = [300,400,500,1000,2000]
 c_inds = []
 nepochs = 5_000
 for (i, noise_size) in enumerate(noise_sizes)
@@ -58,8 +59,8 @@ for (i, noise_size) in enumerate(noise_sizes)
     brca_cphdnnclinf_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
     "model_type" => "cphdnnclinf", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
     "nsamples" => length(brca_prediction.samples) , "insize" => noise_size, 
-    "nfolds" => 5,  "nepochs" =>nepochs, "mb_size" => 50,"wd" =>  2e-2, "enc_nb_hl" =>ae_nb_hls, "enc_hl_size" => 128, "dim_redux"=> 1, 
-    "nb_clinf" => 5,"cph_lr" => 1e-4, "cph_nb_hl" => 2, "cph_hl_size" => 32)
+    "nfolds" => 5,  "nepochs" =>nepochs, "wd" =>  2e-2,  
+    "nb_clinf" => 5,"cph_lr" => 1e-4, "cph_nb_hl" => 1, "cph_hl_size" => 16)
     dump_cb_brca = dump_model_cb(1000, labs_appdf(brca_prediction.stage), export_type = "pdf")
     #validate_cphdnn_clinf!(brca_cphdnn_params, brca_prediction, dump_cb_brca, clinf)
     c_ind = validate_cphdnn_clinf!(brca_cphdnnclinf_params, brca_prediction_NOISE, dummy_dump_cb, clinf)
@@ -69,7 +70,7 @@ for (i, noise_size) in enumerate(noise_sizes)
         test_points = zeros(length(c_inds))
         test_points[1:i] .= c_inds
         fig = Figure(resolution = (1024, 512));
-        ax = Axis(fig[1,1];xticks=(log10.(noise_sizes[1:i]), ["$x" for x in noise_sizes[1:i]]), xlabel = "Nb of added noisy features (log10 scale)",ylabel = "C-index (test)", title = "Performance of CPHDNN on BRCA clinical features by number of extra noisy dimension")
+        ax = Axis(fig[1,1];xticks=(log10.(noise_sizes[1:i]), ["$x" for x in noise_sizes[1:i]]), xlabel = "Nb of added noisy features (log10 scale)",ylabel = "C-index (test)", title = "Performance of CPHDNN on BRCA clinical features by number of extra noisy input features")
         scatter!(fig[1,1], log10.(noise_sizes[1:i]), test_points, color = "blue", label = "test")
         lines!(fig[1,1], log10.(noise_sizes[1:i]), test_points, color = "blue", linestyle = "--")
         Label(fig[2,1], "𝗣𝗮𝗿𝗮𝗺𝗲𝘁𝗲𝗿𝘀 $(stringify(brca_cphdnnclinf_params))")
