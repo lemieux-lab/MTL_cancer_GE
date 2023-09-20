@@ -363,6 +363,27 @@ function split_train_test(X::Matrix, X_c::Matrix,  Y_t::Vector,Y_e::Vector, case
     end
     return folds 
 end 
+function split_train_test(X::Matrix, Y::Matrix, case_ids::Vector; nfolds = 10)
+    folds = Array{Dict, 1}(undef, nfolds)
+    nsamples = size(X)[1]
+    fold_size = Int(floor(nsamples / nfolds))
+    ids = collect(1:nsamples)
+    shuffled_ids = shuffle(ids)
+    for i in 1:nfolds
+        tst_ids = shuffled_ids[collect((i-1) * fold_size +1: min(nsamples, i * fold_size))]
+        tr_ids = setdiff(ids, tst_ids)
+        X_train = X[tr_ids,:]
+        Y_train = Y[tr_ids,:]
+
+        X_test = X[tst_ids,:]
+        Y_test = Y[tst_ids,:]
+        
+        folds[i] = Dict("foldn"=> i, "train_ids"=>tr_ids, "test_ids"=>case_ids[tst_ids],
+                        "train_case_ids"=>case_ids[tr_ids], "train_x"=>X_train, "train_y"=>Y_train, 
+                        "tst_case_ids"=>case_ids[tst_ids], "test_x"=>X_test,  "test_y"=>Y_test)
+    end
+    return folds 
+end 
 lossf(mdl, X, Y_e, NE, wd) = cox_nll_vec(mdl, X, Y_e, NE) + wd * l2_penalty(mdl)
     
 function train_cphdnn!(mdl,X_train, Y_t_train, Y_e_train, X_test, Y_t_test, Y_e_test;nsteps=20_000,wd=1e-3)

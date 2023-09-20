@@ -255,17 +255,24 @@ function compute_c(insize, bn_size, nb_hl)
     return ( insize / bn_size) ^ (1/ (nb_hl + 1) )
 end 
 ####
-function build(model_params)
+function build(model_params; adaptative=true)
     # picks right confiration model for given params
     if model_params["model_type"] == "linear"
         chain = gpu(Dense(model_params["insize"] , model_params["outsize"],identity))
         opt = Flux.ADAM(model_params["lr"])
         lossf = crossentropy_l2
         model = logistic_regression(chain, opt, lossf)
-    elseif model_params["model_type"] == "dnn"
-        chain = gpu(Chain(Dense(model_params["insize"] , model_params["hl_size"], relu),
-        Dense(model_params["hl_size"] , model_params["hl_size"], relu),
-        Dense(model_params["hl_size"] , model_params["outsize"], identity)))
+    elseif model_params["model_type"] == "clfdnn"
+        c = compute_c(model_params["insize"], model_params["outsize"], model_params["nb_hl"] )
+        hls = []
+        hl_sizes = [Int(floor(model_params["outsize"] * c ^ x)) for x in 1:model_params["nb_hl"]]
+        hl_sizes = !adaptative ? Array{Int}(ones(10) .* model_params["hl_size"]) : hl_sizes  
+        for i in 1:model_params["nb_hl"]
+            in_size = i == 1 ? model_params["insize"] : reverse(hl_sizes)[i - 1]
+            out_size = reverse(hl_sizes)[i]
+            push!(hls, gpu(Flux.Dense(in_size, out_size, model_params["n.-lin"])))
+        end
+        chain = gpu(Chain(hls..., Dense(hl_sizes[end], model_params["outsize"], identity)))
         opt = Flux.ADAM(model_params["lr"])
         lossf = crossentropy_l2
         model = dnn(chain, opt, lossf)
@@ -358,6 +365,7 @@ function build(model_params)
         c = compute_c(model_params["insize"], model_params["dim_redux"], model_params["enc_nb_hl"] )
         enc_hls = []
         hl_sizes = [Int(floor(model_params["dim_redux"] * c ^ x)) for x in 1:model_params["enc_nb_hl"]]
+        hl_sizes = !adaptative ? Array{Int}(ones(10) .* model_params["ae_hl_size"]) : hl_sizes  
         for i in 1:model_params["enc_nb_hl"]
             in_size = i == 1 ? model_params["insize"] : reverse(hl_sizes)[i - 1]
             out_size = reverse(hl_sizes)[i]

@@ -112,7 +112,14 @@ function write_h5(dat::GDC_data, labels, outfile)
     f["labels"] = labels 
     close(f)
 end 
-
+function label_binarizer(labels)
+    nb = length(labels)
+    levels = unique(labels)
+    numerised = [findall(levels .== x)[1] for x in labels]
+    mat = reshape(Array{Int}(zeros(length(levels)*nb)), (nb, length(levels)))
+    [mat[i,numerised[i]] = 1 for i in 1:length(numerised)]
+    return mat
+end 
 function merge_GDC_data(basepath, outfile)
     files = readdir(basepath)
     sample_data = CSV.read("$basepath/$(files[1])", DataFrame, delim = "\t", header = 2)

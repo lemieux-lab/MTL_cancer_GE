@@ -12,16 +12,19 @@ brca_prediction = BRCA_data(infile,minmax_norm = true)
 
 ##### PCA
 using MultivariateStats
+using TSne
 maximum(brca_prediction.data')
 pca = fit(PCA, brca_prediction.data', maxoutdim=25, method = :cov);
 brca_prediction.stage
-brca_prediction_pca = predict(pca, brca_pred_subset.data')';
+brca_prediction_pca = predict(pca, brca_prediction.data')';
 brca_pca_25_df = DataFrame(Dict([("pc_$i",brca_prediction_pca[:,i]) for i in 1:size(brca_prediction_pca)[2]]))
-brca_pca_25_df[:,"case_id"] .= case_ids 
+brca_pca_25_df[:,"case_id"] .= brca_prediction.samples 
 CSV.write("RES/SURV/TCGA_BRCA_pca_25_case_ids.csv", brca_pca_25_df)
-CSV.write("RES/SURV/TCGA_BRCA_clinical_survival.csv", BRCA_CLIN)
+#CSV.write("RES/SURV/TCGA_BRCA_clinical_survival.csv", BRCA_CLIN)
 # CSV tcga brca surv + clin data 
 brca_pca = CSV.read("RES/SURV/TCGA_brca_pca_25_case_ids.csv", DataFrame)
+
+brca_tsne = tsne(brca_prediction.data,2, 0, 1000, 30;pca_init = false, verbose = true, progress = true)
 
 brca_pca[:,"is_her2"] .= subgroups .== "HER2-enriched"
 brca_pca[:,"is_lumA"] .= subgroups .== "Luminal A"
@@ -29,56 +32,21 @@ brca_pca[:,"is_lumB"] .= subgroups .== "Luminal B"
 brca_pca[:,"is_bsllk"] .= subgroups .== "Basal-like"
 brca_pca[:,"survt"] .= brca_prediction.survt ./ 10_000
 brca_pca[:,"surve"] .= brca_prediction.surve
+clinf = assemble_clinf(brca_prediction)
+function plabls(stages)  
+    stages_dict = Dict("Stage I" =>"stage_i", "Stage IA" =>"stage_i", "Stage IB"=>"stage_i", "Stage IC"=>"stage_i",
+    "Stage II" =>"stage_ii", "Stage IIA" =>"stage_ii", "Stage IIB"=>"stage_ii", "Stage IIC"=>"stage_ii",
+    "Stage III" =>"stage_iii+", "Stage IIIA" =>"stage_iii+", "Stage IIIB"=>"stage_iii+", "Stage IIIC"=>"stage_iii+",
+    "Stage IV" =>"stage_iii+", "Stage X" => "stage_iii+", "'--"=>"NA")
+    return [stages_dict[x] for x in stages]
+end 
+brca_prediction
+brca_tsne_df = DataFrame(Dict(:tsne_1=>brca_tsne[:,1], :tsne_2=>brca_tsne[:,2], :group=>plabls(brca_prediction)))
+p = AlgebraOfGraphics.data(brca_tsne_df) * mapping(:tsne_1,:tsne_2, color = :group)
+draw(p)
 
 
 folds = split_train_test(Matrix(brca_pca[:,collect(1:25)]), brca_prediction.survt, brca_prediction.surve, vec(brca_pca[:,26]);nfolds =5)
-
-params = Dict("insize"=>size(folds[1]["X_train"])[2],
-    "hl1_size" => 20,
-    "hl2_size" => 20,
-    "acto"=>sigmoid,
-    "nbsteps" => 10_000,
-    "wd" => 1e-3
-    )
-
-mdl = build_cphdnn(params)
-mdl = build_ae(params)
-
-min(cpu(mdl(gpu(Matrix(folds[1]["X_train"]'))))...)
-include("SurvivalDev.jl")
-
-
-validate_cphdnn(params, folds;device =cpu)
-
-fold = folds[1]
-mdl = build_cphdnn(params)
-sorted_ids = sortperm(fold["Y_t_train"])
-X_train = gpu(Matrix(fold["X_train"][sorted_ids,:]'))
-Y_t_train = gpu(fold["Y_t_train"][sorted_ids])
-Y_e_train = gpu(fold["Y_e_train"][sorted_ids])
-NE_frac_tr = sum(Y_e_train .== 1) != 0 ? 1 / sum(Y_e_train .== 1) : 0
-lossf(mdl, X_train, Y_e_train, NE_frac_tr, wd)
-concordance_index(vec(cpu(mdl(X_train))), cpu(Y_t_train), cpu(Y_e_train))
-
-sorted_ids = gpu(sortperm(fold["Y_t_test"]))
-X_test = gpu(Matrix(fold["X_test"][sorted_ids,:]'))
-Y_t_test = gpu(fold["Y_t_test"][sorted_ids])
-Y_e_test = gpu(fold["Y_e_test"][sorted_ids])
-
-
-
-mdl = build_cphdnn(params)    
-# cpu(vec(mdl(X_train)))
-# X_train[:,end-3:end]
-# concordance_index(vec(mdl(X_train)), Y_t_train, Y_e_train)
-# NE_frac_tr = sum(Y_e_train .== 1) != 0 ? 1 / sum(Y_e_train .== 1) : 0 
-# lossf(mdl, X_train, Y_e_train, NE_frac_tr, wd)
-
-ltr, lvld, c_tr, c_vld = train_cphdnn!(mdl, X_train, Y_t_train, Y_e_train, X_test, Y_t_test, Y_e_test;nsteps =nbsteps,wd=wd)
-mdl[1].weight
-push!(outs, vec(cpu(mdl(X_test))) )
-push!(survts, cpu(Y_t_test))
-push!(surves, cpu(Y_e_test))
 
 
 

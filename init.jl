@@ -19,7 +19,8 @@ using CUDA
 using SHA
 using BSON 
 using Distributions
-
+using TSne
+using MultivariateStats
 function set_dirs()
     session_id = "$(now())"
     outpath = "./RES/$session_id"
