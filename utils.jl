@@ -33,7 +33,9 @@ function labs_appdf(labs)
     labs_appd = [append(lb,lbd) for lb in labs]
     return labs_appd
 end 
-
+function add_n_labels(lbls, counter_dict)
+    return ["$x (n=$(counter_dict[x]))" for  x in lbls]
+end
 function stringify(p::Dict;spacer = 80)  
     s = join(["$key: $val" for (key, val) in p], ", ")
     for i in collect(spacer:spacer:length(s))
@@ -46,29 +48,42 @@ end
 ####### Plotting functions    ############
 ##########################################
 
-function plot_embed(X_tr, labels, assoc_ae_params,fig_outpath;acc ="tr_acc")
+function plot_embed(X_tr, X_tst, tr_labels, tst_labels, assoc_ae_params,fig_outpath;acc ="tr_acc")
     # plot final 2d embed from Auto-Encoder
-    tr_acc = round(assoc_ae_params[acc], digits = 3) * 100
-    embed = DataFrame(:emb1=>X_tr[1,:], :emb2=>X_tr[2,:], :cancer_type => labels)
-    p = AlgebraOfGraphics.data(embed) * mapping(:emb1,:emb2,color = :cancer_type,marker = :cancer_type) * visual(markersize =20)
-    fig = draw(p, axis = (;aspect = AxisAspect(1), autolimitaspect = 1, width = 1024, height =1024, 
-    title="$(assoc_ae_params["model_type"]) on $(assoc_ae_params["dataset"]) data\naccuracy by DNN : $tr_acc%"))
+    tr_acc = round(assoc_ae_params["clf_tr_acc"], digits = 3)
+    tst_acc = round(assoc_ae_params["clf_tst_acc"], digits = 3)
+    
+    tr_embed = DataFrame(:emb1=>X_tr[1,:], :emb2=>X_tr[2,:], :cancer_type => tr_labels)
+    tst_embed = DataFrame(:emb1=>X_tst[1,:], :emb2=>X_tst[2,:], :cancer_type => tst_labels)
+    
+    train = AlgebraOfGraphics.data(tr_embed) * mapping(:emb1,:emb2,color = :cancer_type,marker = :cancer_type) * visual(markersize =20)
+    test = AlgebraOfGraphics.data(tst_embed) * mapping(:emb1,:emb2,marker = :cancer_type) * visual(color ="white", strokewidth = 1, strokecolor = "black", markersize =20)
+    
+    fig = draw(train + test, axis = (;aspect = AxisAspect(1), autolimitaspect = 1, width = 1024, height =1024, 
+    title="$(assoc_ae_params["model_type"]) on $(assoc_ae_params["dataset"]) data\naccuracy by DNN TRAIN: $tr_acc% TEST: $tst_acc%"))
     CairoMakie.save(fig_outpath, fig)
 end 
 
-function plot_learning_curves(learning_curves, assoc_ae_params, fig_outpath)
+function plot_learning_curves_aeclf(learning_curves, assoc_ae_params, fig_outpath)
     # learning curves 
-    lr_df = DataFrame(:step => collect(1:length(learning_curves)), :ae_loss=>[i[1] for i in learning_curves], :ae_cor => [i[2] for i in learning_curves],
-    :clf_loss=>[i[3] for i in learning_curves], :clf_acc => [i[4] for i in learning_curves])
+    lr_df = DataFrame(:step => collect(1:length(learning_curves)), :train_clf_loss=>[i[1] for i in learning_curves], :train_clf_acc => [i[2] for i in learning_curves],
+    :train_ae_loss=>[i[3] for i in learning_curves], :train_ae_cor => [i[4] for i in learning_curves],
+    :test_clf_loss=>[i[5] for i in learning_curves], :test_clf_acc => [i[6] for i in learning_curves],
+    :test_ae_loss=>[i[7] for i in learning_curves], :test_ae_cor => [i[8] for i in learning_curves])
     fig = Figure()
     fig[1,1] = Axis(fig, xlabel = "steps", ylabel = "Auto-Encoder MSE loss")
-    ae_loss = lines!(fig[1,1], lr_df[:,"step"], lr_df[:,"ae_loss"], color = "red")
+    train_ae_loss = lines!(fig[1,1], lr_df[:,"step"], lr_df[:,"train_ae_loss"], color = "red")
+    test_ae_loss = lines!(fig[1,1], lr_df[:,"step"], lr_df[:,"test_ae_loss"], linestyle = "--", color = "red")
     fig[2,1] = Axis(fig, xlabel = "steps", ylabel = "Classifier Crossentropy loss")
-    ae_loss = lines!(fig[2,1], lr_df[:,"step"], lr_df[:,"clf_loss"])
-    fig[1,2] = Axis(fig, xlabel = "steps", ylabel = "Auto-Encoder Pearson Corr.")
-    ae_loss = lines!(fig[1,2], lr_df[:,"step"], lr_df[:,"ae_cor"], color = "red")
-    fig[2,2] = Axis(fig, xlabel = "steps", ylabel = "Classfier Accuracy (%)")
-    ae_loss = lines!(fig[2,2], lr_df[:,"step"], lr_df[:,"clf_acc"] .* 100 )
+    train_clf_loss = lines!(fig[2,1], lr_df[:,"step"], lr_df[:,"train_clf_loss"])
+    test_clf_loss = lines!(fig[2,1], lr_df[:,"step"], lr_df[:,"test_clf_loss"], linestyle = "--")
+    fig[1,2] = Axis(fig, xlabel = "steps", ylabel = "Auto-Encoder \n Pearson Corr.")
+    train_ae_cor = lines!(fig[1,2], lr_df[:,"step"], lr_df[:,"train_ae_cor"], color = "red")
+    test_ae_cor = lines!(fig[1,2], lr_df[:,"step"], lr_df[:,"test_ae_cor"], linestyle = "--",color = "red")
+    ax4= Axis(fig[2,2], xlabel = "steps", ylabel = "Classfier Accuracy (%)")
+    train_clf_acc = lines!(fig[2,2], lr_df[:,"step"], lr_df[:,"train_clf_acc"] ,label = "train")
+    test_clf_acc = lines!(fig[2,2], lr_df[:,"step"], lr_df[:,"test_clf_acc"], linestyle = "--", label = "test") 
+    axislegend(ax4, position = :rb)
     Label(fig[3,:], "𝗣𝗮𝗿𝗮𝗺𝗲𝘁𝗲𝗿𝘀 $(stringify(assoc_ae_params))")
     CairoMakie.save(fig_outpath, fig)
 end 

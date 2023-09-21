@@ -323,14 +323,41 @@ function build(model_params; adaptative=true)
         #Dense(model_params["cph_hl_size"] , 1, sigmoid))) 
         opt = Flux.ADAM(model_params["cph_lr"])
         model = enccphdnn(encoder, cphdnn, opt, cox_l2)
-    elseif model_params["model_type"] == "mtl_ae"
-        AE = AE_model(model_params)
-        clf_chain = gpu(Flux.Chain(
-        AE.encoder...,
-        Flux.Dense(model_params["dim_redux"] , model_params["clf_hl_size"], relu), 
-        Flux.Dense(model_params["clf_hl_size"], model_params["clf_hl_size"], relu), 
-        Flux.Dense(model_params["clf_hl_size"], model_params["nclasses"], identity)))
-        clf_opt = Flux.ADAM(model_params["lr_clf"])
+    elseif model_params["model_type"] == "aeclfdnn"
+        c = compute_c(model_params["insize"], model_params["dim_redux"], model_params["enc_nb_hl"] )
+        enc_hls = []
+        hl_sizes = [Int(floor(model_params["dim_redux"] * c ^ x)) for x in 1:model_params["enc_nb_hl"]]
+        hl_sizes = adaptative ?  hl_sizes  : Array{Int}(ones(10) .* model_params["ae_hl_size"])
+        for i in 1:model_params["enc_nb_hl"]
+            in_size = i == 1 ? model_params["insize"] : reverse(hl_sizes)[i - 1]
+            out_size = reverse(hl_sizes)[i]
+            push!(enc_hls, gpu(Flux.Dense(in_size, out_size, leakyrelu)))
+        end 
+        redux_layer = gpu(Flux.Dense(reverse(hl_sizes)[end], model_params["dim_redux"],identity))
+        encoder = Flux.Chain(enc_hls..., redux_layer)
+        dec_hls = []
+        for i in 1:model_params["enc_nb_hl"]
+            in_size = i == 1 ? model_params["dim_redux"] : hl_sizes[i - 1]
+            out_size = hl_sizes[i]
+            push!(dec_hls, gpu(Flux.Dense(in_size, out_size, leakyrelu)))
+        end
+        output_layer = gpu(Flux.Dense(hl_sizes[end], model_params["insize"], leakyrelu))
+        decoder = Flux.Chain(dec_hls..., output_layer)
+        ae_chain = Flux.Chain(enc_hls..., redux_layer, dec_hls..., output_layer)
+        AE = AE_model(ae_chain, encoder, decoder, output_layer, Flux.ADAM(model_params["ae_lr"]), mse_l2) 
+        # classifier DNN
+        c = compute_c(model_params["dim_redux"], model_params["outsize"], model_params["clfdnn_nb_hl"] )
+        hls = []
+        hl_sizes = [Int(floor(model_params["outsize"] * c ^ x)) for x in 1:model_params["clfdnn_nb_hl"]]
+        hl_sizes = !adaptative ? Array{Int}(ones(10) .* model_params["clfdnn_hl_size"]) : hl_sizes  
+        for i in 1:model_params["clfdnn_nb_hl"]
+            in_size = i == 1 ? model_params["dim_redux"] : reverse(hl_sizes)[i - 1]
+            out_size = reverse(hl_sizes)[i]
+            push!(hls, gpu(Flux.Dense(in_size, out_size, model_params["n.-lin"])))
+        end
+        clf_chain = gpu(Chain(encoder..., hls..., Dense(hl_sizes[end], model_params["outsize"], identity)))
+        
+        clf_opt = Flux.ADAM(model_params["clfdnn_lr"])
         clf_lossf = crossentropy_l2
         clf = dnn(clf_chain, clf_opt, clf_lossf)
         model = mtl_AE(AE, clf, AE.encoder)
@@ -365,7 +392,7 @@ function build(model_params; adaptative=true)
         c = compute_c(model_params["insize"], model_params["dim_redux"], model_params["enc_nb_hl"] )
         enc_hls = []
         hl_sizes = [Int(floor(model_params["dim_redux"] * c ^ x)) for x in 1:model_params["enc_nb_hl"]]
-        hl_sizes = !adaptative ? Array{Int}(ones(10) .* model_params["ae_hl_size"]) : hl_sizes  
+        hl_sizes = adaptative ?  hl_sizes  : Array{Int}(ones(10) .* model_params["ae_hl_size"])
         for i in 1:model_params["enc_nb_hl"]
             in_size = i == 1 ? model_params["insize"] : reverse(hl_sizes)[i - 1]
             out_size = reverse(hl_sizes)[i]
@@ -643,7 +670,7 @@ end
 
 
 # define dump call back 
-function dump_model_cb(dump_freq, labels; export_type = ".png")
+function dump_model_cb(dump_freq, labels; export_type = "png")
     return (model, tr_metrics, params_dict, iter::Int, fold) -> begin 
         # check if end of epoch / start / end 
         if iter % dump_freq == 0 || iter == 0 || iter == params_dict["nepochs"]
@@ -651,13 +678,20 @@ function dump_model_cb(dump_freq, labels; export_type = ".png")
             bson("RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
             # plot learning curve
             lr_fig_outpath = "RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
-            plot_learning_curves(tr_metrics, params_dict, lr_fig_outpath)
+            plot_learning_curves_aeclf(tr_metrics, params_dict, lr_fig_outpath)
             # plot embedding
             X_tr = cpu(model.encoder(gpu(fold["train_x"]')))
-            infos = labels[fold["train_ids"]]
+            X_tst = cpu(model.encoder(gpu(fold["test_x"]')))
+            
+            tr_lbls = labels[fold["train_ids"]]
+            tst_lbls = labels[fold["test_ids"]]
             emb_fig_outpath = "RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))/model_$(zpad(iter)).$export_type"
-            #plot_embed(X_tr, infos, params_dict, emb_fig_outpath)
- 
+            plot_embed(X_tr, X_tst, tr_lbls, tst_lbls,  params_dict, emb_fig_outpath;acc="clf_tr_acc")
+            #fig = Figure(resolution = (1024,1024));
+            #ax = Axis(fig[1,1];xlabel="Predicted", ylabel = "True Expr.", title = "Predicted vs True of $(brca_ae_params["ngenes"]) Genes Expression Profile TCGA BRCA with AE \n$(round(ae_cor_test;digits =3))", aspect = DataAspect())
+            #hexbin!(fig[1,1], outs, test_xs, cellsize=(0.02, 0.02), colormap=cgrad([:grey,:yellow], [0.00000001, 0.1]))
+            #CairoMakie.save("RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))/1B_AE_BRCA_AE_SCATTER_DIM_REDUX.pdf", fig)
+
         end 
     end 
 end 
