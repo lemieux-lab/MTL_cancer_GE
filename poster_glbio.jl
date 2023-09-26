@@ -16,6 +16,7 @@ highv = reverse(sortperm([var(x) for x in 1:size(brca_prediction.data)[2]]))
 highv_25 = highv[1:Int(floor(length(highv)*0.25))]
 brca_pred_subset = GDC_data(brca_prediction.data[:,highv_25], brca_prediction.rows, brca_prediction.cols[highv_25], brca_prediction.targets)
 
+
 #### TSNE 
 using TSne
 

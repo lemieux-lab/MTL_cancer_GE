@@ -82,22 +82,61 @@ CairoMakie.save("$outpath/0C_TSNE_BRCA_PAM50.pdf",fig)
 ### 1.A ##
 ##### AE only BRCA
 x_data = brca_prediction.data[keep,:]
-nfolds, ae_nb_hls, dim_redux, nepochs = 5, 1, 2, 10_000
+nfolds, ae_nb_hls, dim_redux, nepochs = 5, 1, 3, 10000
 brca_aeclfdnn_params = Dict("model_title"=>"AE_CLF_BRCA_2D", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "aeclfdnn", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
 "nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
-"nfolds" => 5,  "nepochs" => nepochs, "ae_lr" => 1e-4, "wd" => 1e-3, "dim_redux" => dim_redux, 
+"nfolds" => 5,  "nepochs" => nepochs, "ae_lr" => 1e-5, "wd" => 1e-3, "dim_redux" => dim_redux, 
 "ae_hl_size"=>128,"enc_hl_size" => 128, "dec_nb_hl" => ae_nb_hls, "dec_hl_size" => 128, "enc_nb_hl" =>ae_nb_hls, "n.-lin" => leakyrelu,
-"clfdnn_lr" => 1e-3, "clfdnn_nb_hl" => 2, "clfdnn_hl_size" => 64, "outsize" => size(y_data)[2])
+"clfdnn_lr" => 1e-4, "clfdnn_nb_hl" => 2, "clfdnn_hl_size" => 64, "outsize" => size(y_data)[2])
 brca_clf_cb = dump_model_cb(1000, TSNE_df[:,"lbls"], export_type = "pdf")
-validate_aeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)
+#validate_aeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)
+model, fold = validate_aeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)
+        
+X_tr = cpu(model.encoder(gpu(fold["train_x"]')))
+X_tst = cpu(model.encoder(gpu(fold["test_x"]')))
+
+tr_lbls = TSNE_df[:,"clinical_data_PAM50MRNA"][fold["train_ids"]]
+tst_lbls = TSNE_df[:,"clinical_data_PAM50MRNA"][fold["test_ids"]]
+
+fig = Figure(resolution = (1024, 1024));
+az = -0.2
+ax3d = Axis3(fig[1,1], title = "3D inner layer representation of dataset",  azimuth=az * pi)
+colors = ["#436cde","#2e7048", "#dba527", "#f065eb", "#919191"]
+for (i,lab) in enumerate(unique(tr_lbls))
+    scatter!(ax3d, X_tr[:,tr_lbls .== lab], color = colors[i], label = lab)
+    scatter!(ax3d, X_tst[:,tst_lbls .== lab], color = colors[i], strokewidth=1)
+end
+test_y = fold["test_y"]
+preds_y = Matrix(cpu(model.clf.model(gpu(fold["test_x"]')) .== maximum(model.clf.model(gpu(fold["test_x"]')), dims =1))')
+nclasses =size(test_y)[2] 
+convertm = reshape(collect(1:nclasses), (nclasses,1))
+test_y = vec(test_y * convertm)
+preds_y = vec(preds_y * convertm)
+scatter!(ax3d, X_tst[:,test_y .!= preds_y], color = "black", marker = [:x for i in 1:sum(test_y .!= preds_y)],markersize = 10, label ="errors")
+axislegend(ax3d)
+fig
+CM = Matrix{Int}(zeros((nclasses, nclasses)))
+for i in 1:nclasses
+    for j in 1:nclasses
+        CM[i,j] = Int(sum((test_y .== i) .& (preds_y .== j)))
+end 
+end
+fig = Figure(resultion = (1024,1024));
+cmplot = Axis(fig[1,1],title = "Confusion Matrix Results")
+heatmap!(cmplot,CM)
+fig
+CM
+ConfusionMatrix(test_y, preds_y)
+accuracy(model.clf.model, gpu(fold["test_x"]'), gpu(fold["test_y"]'))
 
 function validate_aeclfdnn!(params_dict, x_data, y_data, samples, dump_cb_brca;build_adaptative=false,nfolds=5,device =gpu)
     folds = split_train_test(x_data, y_data, samples;nfolds = nfolds)
-    mkdir("RES/$(params_dict["session_id"])/$(params_dict["modelid"])")
+    model_params_path = "$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"])"
+    mkdir("RES/$model_params_path")
     x_pred_by_fold, test_xs = [],[]
-    [mkdir("RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(foldn,pad =3))") for foldn in 1:params_dict["nfolds"]]
-    bson("RES/$(params_dict["session_id"])/$(params_dict["modelid"])/params.bson",params_dict)
+    [mkdir("RES/$model_params_path/FOLD$(zpad(foldn,pad =3))") for foldn in 1:params_dict["nfolds"]]
+    bson("RES/$model_params_path/params.bson",params_dict)
     for fold in folds
         model = build(params_dict;adaptative=build_adaptative)
         ## STATIC VARS    
@@ -139,8 +178,11 @@ function validate_aeclfdnn!(params_dict, x_data, y_data, samples, dump_cb_brca;b
             params_dict["clf_tst_acc"] = test_clf_acc
             push!(learning_curve, (train_clf_loss, train_clf_acc, train_ae_loss, train_ae_cor, test_clf_loss, test_clf_acc, test_ae_loss, test_ae_cor))
             println("FOLD $(fold["foldn"]) $iter\t TRAIN CLF loss $(round(train_clf_loss,digits =3)) \t acc.%: $(round(train_clf_acc, digits = 3))\tAE loss: $train_ae_loss \tcor: $train_ae_cor\t TEST CLF loss $(round(test_clf_loss,digits =3)) \t acc.%: $(round(test_clf_acc, digits = 3)) AE loss: $test_ae_loss \t cor $test_ae_cor")
-            dump_cb_brca(model, learning_curve, params_dict, iter, fold)
+            
+            #dump_cb_brca(model, learning_curve, params_dict, iter, fold)
+            
         end
+        return model, fold
         push!(x_pred_by_fold, Matrix(cpu(model.clf.model(test_x))'))
         push!(test_xs, Matrix(cpu(test_y)'))
     end
@@ -149,7 +191,7 @@ function validate_aeclfdnn!(params_dict, x_data, y_data, samples, dump_cb_brca;b
 
     return concat_OUTs, concat_tests#Dict(:tr_acc=>accuracy(concat_tests,concat_OUTs))
 end 
-
+    
 
 ### 2 ####
 ### 2.A ##

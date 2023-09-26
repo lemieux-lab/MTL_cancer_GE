@@ -16,7 +16,7 @@ clinf = assemble_clinf(brca_prediction)
 device()
 sum(sum(brca_prediction.data, dims = 1) .== 0)
 nfolds, ae_nb_hls = 5, 1
-dim_redux_sizes = [1,2,3,4,5,10,15,20,30,50,100,200,300,500,1000, 2000]
+dim_redux_sizes = [1,2,3,4,5,10,15,20,30,50,100,200,300,500,1000]
 train_corrs = []
 tst_corrs = []
 nepochs = 3000
@@ -25,7 +25,7 @@ for (i,dim_redux) in enumerate(dim_redux_sizes)
     brca_ae_params = Dict("model_title"=>"AE_BRCA_DIM_REDUX_$dim_redux", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
     "model_type" => "auto_encoder", "session_id" => session_id, "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
     "nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
-    "nfolds" => 5,  "nepochs" => nepochs, "mb_size" => 200, "ae_lr" => 1e-3, "wd" => 1e-4, "dim_redux" => dim_redux, 
+    "nfolds" => 5,  "nepochs" => nepochs, "mb_size" => 200, "ae_lr" => 1e-3, "wd" => 5e-5, "dim_redux" => dim_redux, 
     "enc_hl_size" => "adaptative", "dec_nb_hl" => ae_nb_hls, "dec_hl_size" => "adaptative", "enc_nb_hl" =>ae_nb_hls, 
     "nb_clinf"=>5, "cph_lr" => 1e-4, "cph_nb_hl" => 1, "cph_hl_size" => 64)
     dump_cb_brca = dump_model_cb(1000, labs_appdf(brca_prediction.stage), export_type = "pdf")

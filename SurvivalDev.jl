@@ -357,7 +357,7 @@ function split_train_test(X::Matrix, X_c::Matrix,  Y_t::Vector,Y_e::Vector, case
         Y_t_test = Y_t[tst_ids]
         Y_e_test = Y_e[tst_ids]
 
-        folds[i] = Dict("foldn"=> i, "train_ids"=>tr_ids, "test_ids"=>case_ids[tst_ids],
+        folds[i] = Dict("foldn"=> i, "train_ids"=>tr_ids, "test_ids"=>tst_ids,
                         "train_case_ids"=>case_ids[tr_ids], "train_x"=>X_train, "train_x_c"=> X_c_train, "Y_t_train"=>Y_t_train, "Y_e_train"=>Y_e_train,
                         "tst_case_ids"=>case_ids[tst_ids], "test_x"=>X_test,  "test_x_c"=> X_c_test, "Y_t_test"=>Y_t_test, "Y_e_test"=>Y_e_test)
     end
