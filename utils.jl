@@ -47,6 +47,19 @@ end
 ##########################################
 ####### Plotting functions    ############
 ##########################################
+function plot_embed_train_test_2d(X_tr, X_tst, tr_labels, tst_labels, params_dict)
+    fig_outpath= "$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"]).pdf"
+    # plot final 2d embed from Auto-Encoder
+    tr_embed = DataFrame(:emb1=>X_tr[1,:], :emb2=>X_tr[2,:], :cancer_type => tr_labels)
+    tst_embed = DataFrame(:emb1=>X_tst[1,:], :emb2=>X_tst[2,:], :cancer_type => tst_labels)
+    
+    train = AlgebraOfGraphics.data(tr_embed) * mapping(:emb1,:emb2,color = :cancer_type,marker = :cancer_type) * visual(markersize =20)
+    test = AlgebraOfGraphics.data(tst_embed) * mapping(:emb1,:emb2,marker = :cancer_type) * visual(color ="white", strokewidth = 1, strokecolor = "black", markersize =20)
+    
+    fig = draw(train + test, axis = (;aspect = AxisAspect(1), autolimitaspect = 1, width = 1024, height =1024, 
+    title="$(assoc_ae_params["model_type"]) on $(assoc_ae_params["dataset"]) data\naccuracy by DNN TRAIN: $tr_acc% TEST: $tst_acc%"))
+    CairoMakie.save(fig_outpath, fig)
+end
 
 function plot_embed(X_tr, X_tst, tr_labels, tst_labels, assoc_ae_params,fig_outpath;acc ="tr_acc")
     # plot final 2d embed from Auto-Encoder

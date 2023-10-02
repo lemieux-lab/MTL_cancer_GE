@@ -91,7 +91,7 @@ brca_aeclfdnn_params = Dict("model_title"=>"AE_CLF_BRCA_2D", "modelid" => "$(byt
 "clfdnn_lr" => 1e-4, "clfdnn_nb_hl" => 2, "clfdnn_hl_size" => 64, "outsize" => size(y_data)[2])
 brca_clf_cb = dump_model_cb(1000, TSNE_df[:,"lbls"], export_type = "pdf")
 #validate_aeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)
-model, fold = validate_aeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)
+model, fold, outs, y_test = validate_aeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)
         
 X_tr = cpu(model.encoder(gpu(fold["train_x"]')))
 X_tst = cpu(model.encoder(gpu(fold["test_x"]')))
@@ -116,6 +116,13 @@ preds_y = vec(preds_y * convertm)
 scatter!(ax3d, X_tst[:,test_y .!= preds_y], color = "black", marker = [:x for i in 1:sum(test_y .!= preds_y)],markersize = 10, label ="errors")
 axislegend(ax3d)
 fig
+CairoMakie.save("$outpath/inner_layer_3d_aeclfdnn_model",fig)
+### proper id outfolders
+### add loss curves for everything
+### verify 3d PAM50 + CF in a CPH / CPHDNN 
+### add 3rd objective
+
+
 CM = Matrix{Int}(zeros((nclasses, nclasses)))
 for i in 1:nclasses
     for j in 1:nclasses
@@ -129,69 +136,6 @@ fig
 CM
 ConfusionMatrix(test_y, preds_y)
 accuracy(model.clf.model, gpu(fold["test_x"]'), gpu(fold["test_y"]'))
-
-function validate_aeclfdnn!(params_dict, x_data, y_data, samples, dump_cb_brca;build_adaptative=false,nfolds=5,device =gpu)
-    folds = split_train_test(x_data, y_data, samples;nfolds = nfolds)
-    model_params_path = "$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"])"
-    mkdir("RES/$model_params_path")
-    x_pred_by_fold, test_xs = [],[]
-    [mkdir("RES/$model_params_path/FOLD$(zpad(foldn,pad =3))") for foldn in 1:params_dict["nfolds"]]
-    bson("RES/$model_params_path/params.bson",params_dict)
-    for fold in folds
-        model = build(params_dict;adaptative=build_adaptative)
-        ## STATIC VARS    
-        nepochs= params_dict["nepochs"]
-        wd = params_dict["wd"]
-        train_x = device(Matrix(fold["train_x"]'));
-        train_y = device(Matrix(fold["train_y"]'));
-        test_x = device(Matrix(fold["test_x"]'));
-        test_y = device(Matrix(fold["test_y"]'));
-
-        nsamples = size(train_y)[2]    
-        learning_curve = []
-
-        for iter in 1:nepochs#ProgressBar(1:nepochs)
-            ## gradient Auto-Encoder 
-            ps = Flux.params(model.ae.net)
-            gs = gradient(ps) do
-                model.ae.lossf(model.ae, train_x, train_x, weight_decay = wd)
-            end
-            Flux.update!(model.ae.opt, ps, gs)
-            ## gradient Classfier DNN
-            ps = Flux.params(model.clf.model)
-            gs = gradient(ps) do 
-                model.clf.lossf(model.clf, train_x, train_y, weight_decay = wd)
-            end
-            Flux.update!(model.clf.opt, ps, gs)
-
-            train_clf_loss = round(model.clf.lossf(model.clf, train_x, train_y, weight_decay = wd),digits=3)
-            train_clf_acc =  round(accuracy(train_y, model.clf.model(train_x)),digits = 3)
-            train_ae_loss = round(model.ae.lossf(model.ae, train_x, train_x, weight_decay = wd),digits=3)
-            train_ae_cor = round(my_cor(vec(train_x), vec(model.ae.net(train_x))),digits=3)
-            
-            params_dict["clf_tr_acc"] = train_clf_acc
-            test_clf_loss = round(model.clf.lossf(model.clf, test_x, test_y, weight_decay = wd), digits = 3)
-            test_clf_acc = round(accuracy(test_y, model.clf.model(test_x)),digits = 3)
-            test_ae_loss =  round(model.ae.lossf(model.ae, test_x, test_x, weight_decay = wd),digits=3)
-            test_ae_cor = round(my_cor(vec(test_x), vec(model.ae.net(test_x))),digits=3)
-            
-            params_dict["clf_tst_acc"] = test_clf_acc
-            push!(learning_curve, (train_clf_loss, train_clf_acc, train_ae_loss, train_ae_cor, test_clf_loss, test_clf_acc, test_ae_loss, test_ae_cor))
-            println("FOLD $(fold["foldn"]) $iter\t TRAIN CLF loss $(round(train_clf_loss,digits =3)) \t acc.%: $(round(train_clf_acc, digits = 3))\tAE loss: $train_ae_loss \tcor: $train_ae_cor\t TEST CLF loss $(round(test_clf_loss,digits =3)) \t acc.%: $(round(test_clf_acc, digits = 3)) AE loss: $test_ae_loss \t cor $test_ae_cor")
-            
-            #dump_cb_brca(model, learning_curve, params_dict, iter, fold)
-            
-        end
-        return model, fold
-        push!(x_pred_by_fold, Matrix(cpu(model.clf.model(test_x))'))
-        push!(test_xs, Matrix(cpu(test_y)'))
-    end
-    concat_OUTs = Matrix(vcat(x_pred_by_fold...)')
-    concat_tests = Matrix(vcat(test_xs...)')
-
-    return concat_OUTs, concat_tests#Dict(:tr_acc=>accuracy(concat_tests,concat_OUTs))
-end 
-    
 
 ### 2 ####
 ### 2.A ##

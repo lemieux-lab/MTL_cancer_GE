@@ -611,6 +611,14 @@ function accuracy(model, X, Y)
     return pct
 end 
 
+# function accuracy(X_true, X_pred)
+#     preds = (X_pred .== maximum(X_pred, dims=1)) 
+#     TP = sum(sum((preds .== X_true) .&& (preds .== 1),dims = 1) )
+#     return 100 * TP / size(X_true)[2] 
+# end 
+
+
+
 function accuracy(true_labs, pred_labs)
     n = size(true_labs)[2]
     preds = pred_labs .== maximum(pred_labs, dims = 1)
@@ -681,8 +689,9 @@ function dump_model_cb(dump_freq, labels; export_type = "png")
     return (model, tr_metrics, params_dict, iter::Int, fold) -> begin 
         # check if end of epoch / start / end 
         if iter % dump_freq == 0 || iter == 0 || iter == params_dict["nepochs"]
+            model_params_path = "$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"])"
             # saves model
-            bson("RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
+            bson("RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
             # plot learning curve
             lr_fig_outpath = "RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
             plot_learning_curves_aeclf(tr_metrics, params_dict, lr_fig_outpath)
@@ -703,6 +712,32 @@ function dump_model_cb(dump_freq, labels; export_type = "png")
     end 
 end 
 
+function dump_aeclfdnn_model_cb(dump_freq, labels; export_type = "png")
+    return (model, tr_metrics, params_dict, iter::Int, fold) -> begin 
+        # check if end of epoch / start / end 
+        if iter % dump_freq == 0 || iter == 0 || iter == params_dict["nepochs"]
+            model_params_path = "$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"])"
+            # saves model
+            bson("RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
+            # plot learning curve
+            lr_fig_outpath = "RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
+            plot_learning_curves_aeclf(tr_metrics, params_dict, lr_fig_outpath)
+            # plot embedding
+            X_tr = cpu(model.encoder(gpu(fold["train_x"]')))
+            X_tst = cpu(model.encoder(gpu(fold["test_x"]')))
+            
+            tr_lbls = labels[fold["train_ids"]]
+            tst_lbls = labels[fold["test_ids"]]
+            emb_fig_outpath = "RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad=3))/model_$(zpad(iter)).$export_type"
+            #plot_embed(X_tr, X_tst, tr_lbls, tst_lbls,  params_dict, emb_fig_outpath;acc="clf_tr_acc")
+            #fig = Figure(resolution = (1024,1024));
+            #ax = Axis(fig[1,1];xlabel="Predicted", ylabel = "True Expr.", title = "Predicted vs True of $(brca_ae_params["ngenes"]) Genes Expression Profile TCGA BRCA with AE \n$(round(ae_cor_test;digits =3))", aspect = DataAspect())
+            #hexbin!(fig[1,1], outs, test_xs, cellsize=(0.02, 0.02), colormap=cgrad([:grey,:yellow], [0.00000001, 0.1]))
+            #CairoMakie.save("RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))/1B_AE_BRCA_AE_SCATTER_DIM_REDUX.pdf", fig)
+
+        end 
+    end 
+end 
 # define dump call back 
 function dump_aecphdnn_model_cb(dump_freq, labels; export_type = "png")
     return (model, tr_metrics, params_dict, iter::Int, fold) -> begin 
