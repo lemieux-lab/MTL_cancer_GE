@@ -23,7 +23,7 @@ x_data = brca_prediction.data[keep,:]
 nepochs = 3000
 nfolds, ae_nb_hls, dim_redux = 5, 1, 2
 brca_aeclfdnn_params = Dict("model_title"=>"AE_CLF_BRCA_2D", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
-"model_type" => "aeclfdnn", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => device(), 
+"model_type" => "aeclfdnn", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => "$(device())", 
 "nsamples_train" => length(brca_prediction.samples[keep]) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples[keep]) / nfolds)),
 "nsamples" => length(brca_prediction.samples[keep]) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
 "nfolds" => 5,  "nepochs" => nepochs, "ae_lr" => 1e-4, "wd" => 1e-3, "dim_redux" => dim_redux, 
@@ -37,7 +37,7 @@ bmodel, bmfold, outs_test, y_test, outs_train, y_train = validate_aeclfdnn!(brca
 ## 2 CLFDNN-AE 3D vs random x10 replicat accuracy BOXPLOT, train test samples by class bn layer 3D SCATTER.
 nfolds, ae_nb_hls, dim_redux = 5, 1, 3
 brca_aeclfdnn_params = Dict("model_title"=>"AE_CLF_BRCA", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
-"model_type" => "aeclfdnn", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => device(), 
+"model_type" => "aeclfdnn", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => "$(device())", 
 "nsamples_train" => length(brca_prediction.samples[keep]) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples[keep]) / nfolds)),
 "nsamples" => length(brca_prediction.samples[keep]) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
 "nfolds" => 5,  "nepochs" => nepochs, "ae_lr" => 1e-4, "wd" => 1e-3, "dim_redux" => dim_redux, 
@@ -52,7 +52,7 @@ nfolds, ae_nb_hls = 5, 1
 dim_redux_sizes = [1, 5,10,15,20,30,50,100,200,300,500,1000,2000]
 for (i,dim_redux) in enumerate(dim_redux_sizes)
     brca_aeclfdnn_params = Dict("model_title"=>"AE_CLF_BRCA", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
-    "model_type" => "aeclfdnn", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => device(), 
+    "model_type" => "aeclfdnn", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => "$(device())", 
     "nsamples_train" => length(brca_prediction.samples[keep]) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples[keep]) / nfolds)),
     "nsamples" => length(brca_prediction.samples[keep]) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
     "nfolds" => 5,  "nepochs" => nepochs, "ae_lr" => 1e-4, "wd" => 1e-3, "dim_redux" => dim_redux, 
@@ -69,7 +69,7 @@ nfolds, ae_nb_hls = 5, 1
 dim_redux_sizes = [1,2,3,4,5,10,15,20,30,50,100,200,300,500,1000,2000]
 for (i,dim_redux) in enumerate(dim_redux_sizes)
     brca_ae_params = Dict("model_title"=>"AE_BRCA_DIM_REDUX_$dim_redux", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
-        "model_type" => "auto_encoder", "session_id" => session_id,  "machine_id"=>strip(read(`hostname`, String)), "device" => device(),
+        "model_type" => "auto_encoder", "session_id" => session_id,  "machine_id"=>strip(read(`hostname`, String)), "device" => "$(device())",
         "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
         "nsamples" => length(brca_prediction.samples) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
         "nfolds" => 5,  "nepochs" => nepochs, "mb_size" => 200, "ae_lr" => 1e-3, "wd" => 1e-4, "dim_redux" => dim_redux, 
@@ -86,7 +86,7 @@ noise_sizes = [1,2,3,4,5,10,15,20,30,50,100,200,300,500,1000,2000]
 for (i, noise_size) in enumerate(noise_sizes)
     brca_prediction_NOISE = BRCA_data(reshape(rand(nsamples *noise_size), (nsamples,noise_size)),brca_prediction.samples, brca_prediction.genes, brca_prediction.survt,brca_prediction.surve,brca_prediction.age, brca_prediction.stage, brca_prediction.ethnicity)
     brca_cphdnnclinf_params = Dict("modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction_noise", 
-    "model_type" => "cphdnnclinf", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => device(),
+    "model_type" => "cphdnnclinf", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => "$(device())",
     "nsamples_train" => length(brca_prediction.samples) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples) / nfolds)),
     "nsamples" => length(brca_prediction.samples) , "insize" => noise_size, "nfolds" => 5,  "nepochs" =>nepochs, "wd" =>  2e-2,  
     "nb_clinf" => 5,"cph_lr" => 1e-4, "cph_nb_hl" => 1, "cph_hl_size" => 32, "model_cv_complete" => false)
