@@ -47,8 +47,13 @@ end
 ##########################################
 ####### Plotting functions    ############
 ##########################################
-function plot_embed_train_test_2d(X_tr, X_tst, tr_labels, tst_labels, params_dict)
-    fig_outpath= "$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"]).pdf"
+function plot_embed_train_test_2d(model, fold, params_dict)
+    X_tr = cpu(model.ae.encoder(gpu(fold["train_x"]')))
+    X_tst = cpu(model.ae.encoder(gpu(fold["test_x"]')))
+    tr_labels = cpu(y_lbls[fold["train_ids"]])
+    tst_labels = cpu(y_lbls[fold["test_ids"]])
+
+    fig_outpath= "RES/$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"])_scatter.pdf"
     # plot final 2d embed from Auto-Encoder
     tr_embed = DataFrame(:emb1=>X_tr[1,:], :emb2=>X_tr[2,:], :cancer_type => tr_labels)
     tst_embed = DataFrame(:emb1=>X_tst[1,:], :emb2=>X_tst[2,:], :cancer_type => tst_labels)
@@ -57,7 +62,59 @@ function plot_embed_train_test_2d(X_tr, X_tst, tr_labels, tst_labels, params_dic
     test = AlgebraOfGraphics.data(tst_embed) * mapping(:emb1,:emb2,marker = :cancer_type) * visual(color ="white", strokewidth = 1, strokecolor = "black", markersize =20)
     
     fig = draw(train + test, axis = (;aspect = AxisAspect(1), autolimitaspect = 1, width = 1024, height =1024, 
-    title="$(assoc_ae_params["model_type"]) on $(assoc_ae_params["dataset"]) data\naccuracy by DNN TRAIN: $tr_acc% TEST: $tst_acc%"))
+    title="$(params_dict["model_type"]) on $(params_dict["dataset"]) data\naccuracy by DNN TRAIN: $(round(params_dict["clf_tr_acc"] * 100, digits=2))% TEST: $(round(params_dict["clf_tst_acc"]*100, digits=2))%"))
+    CairoMakie.save(fig_outpath, fig)
+end
+
+function plot_embed_train_test_3d(model, fold, params_dict)
+    fig_outpath= "RES/$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"])_scatter.pdf"
+    
+    X_tr = cpu(model.ae.encoder(gpu(fold["train_x"]')))
+    X_tst = cpu(model.ae.encoder(gpu(fold["test_x"]')))
+    tr_labels = cpu(y_lbls[fold["train_ids"]])
+    tst_labels = cpu(y_lbls[fold["test_ids"]])
+    
+    fig = Figure(resolution = (1024, 1024));
+    az = -0.2
+    ax3d = Axis3(fig[1,1], title = "3D inner layer representation of dataset\nAcc% TRAIN: $(round(params_dict["clf_tr_acc"] * 100, digits=2))% TEST: $(round(params_dict["clf_tst_acc"]*100, digits=2))%",  azimuth=az * pi)
+    colors = ["#436cde","#2e7048", "#dba527", "#f065eb", "#919191"]
+    for (i,lab) in enumerate(unique(tr_labels))
+        scatter!(ax3d, X_tr[:,tr_labels .== lab], color = colors[i], label = lab)
+        scatter!(ax3d, X_tst[:,tst_labels .== lab], color = colors[i], strokewidth=1)
+    end
+    test_y = fold["test_y"]
+    preds_y = Matrix(cpu(model.clf.model(gpu(fold["test_x"]')) .== maximum(model.clf.model(gpu(fold["test_x"]')), dims =1))')
+    nclasses =size(test_y)[2] 
+    convertm = reshape(collect(1:nclasses), (nclasses,1))
+    test_y = vec(test_y * convertm)
+    preds_y = vec(preds_y * convertm)
+    scatter!(ax3d, X_tst[:,test_y .!= preds_y], color = "black", marker = [:x for i in 1:sum(test_y .!= preds_y)],markersize = 10, label ="errors")
+    axislegend(ax3d)
+    CairoMakie.save(fig_outpath,fig)
+
+end
+
+function plot_hexbin_pred_true_ae(model, fold, params_dict)
+    fig_outpath= "RES/$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"])_hexbin.pdf"
+    X_pred = vec(model.net(gpu(fold["test_x"]')))
+    X_true = gpu(vec(Matrix(fold["test_x"]')))
+    pearson = round(my_cor(X_pred, X_true), digits = 3)
+    fig = Figure(resolution = (1024,1024));
+    ax = Axis(fig[1,1], aspect = DataAspect(), ylabel = "True Expressions", xlabel = "Predicted Expreessions", title = "Predicted vs True Expression TCGA BRCA \nPearson Cor: $pearson")
+    hexbin!(ax, cpu(X_pred), cpu(X_true), cellsize=(0.02,0.02), colormap = cgrad([:grey,:yellow], [0.00000001, 0.1]));
+    lines!(ax, [0,1],[0,1], linestyle="--")
+    CairoMakie.save(fig_outpath, fig)
+end
+
+function plot_hexbin_pred_true_aeclfdnn(model, fold, params_dict)
+    fig_outpath= "RES/$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"])_hexbin.pdf"
+    X_pred = vec(model.ae.net(gpu(fold["test_x"]')))
+    X_true = gpu(vec(Matrix(fold["test_x"]')))
+    pearson = round(my_cor(X_pred, X_true), digits = 3)
+    fig = Figure(resolution = (1024,1024));
+    ax = Axis(fig[1,1], aspect = DataAspect(), ylabel = "True Expressions", xlabel = "Predicted Expreessions", title = "Predicted vs True Expression TCGA BRCA \nPearson Cor: $pearson")
+    hexbin!(ax, cpu(X_pred), cpu(X_true), cellsize=(0.02,0.02), colormap = cgrad([:grey,:yellow], [0.00000001, 0.1]));
+    lines!(ax, [0,1],[0,1], linestyle="--")
     CairoMakie.save(fig_outpath, fig)
 end
 
