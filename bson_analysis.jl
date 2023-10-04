@@ -103,7 +103,7 @@ CairoMakie.save("figures/AE_CLF_by_bn_size_corr.pdf",fig)
 cph = df[(df[:,"nepochs"] .>= 2000) .& (df[:,"model_cv_complete"] ) .& (df[:,"model_type"] .== "cphdnnclinf"),:]
 cph = cph[cph[:,"cphdnn_train_c_ind"] .!== missing,:]
 cph = cph[cph[:,"insize"] .!== missing,:]
-fig = Figure(resolution = (1024,312));
+fig = Figure(resolution = (1024,512));
 cph[:, "insize"]
 ax = Axis(fig[1,1],
     ylabel = "Concordance index ", 
@@ -117,7 +117,7 @@ axislegend(ax,position =:rc)
 fig
 CairoMakie.save("figures/CPHDNN_clinf_by_nb_extra_noise.pdf",fig)
 df = gather_params("RES/")
-cphdnn = df[(df[:,"nepochs"] .>= 2000) .& (df[:,"model_cv_complete"] ) .& (df[:,"model_type"] .== "aecphdnn"),:] # cleanup
+cphdnn = df[(df[:,"nepochs"] .>= 3000) .& (df[:,"model_cv_complete"] ) .& (df[:,"model_type"] .== "aecphdnn"),:] # cleanup
 
 #df_subset[:,"aecphdnn_tst_c_ind"]
 fig = Figure(resolution = (1024,512));
@@ -132,3 +132,6 @@ boxplot!(ax, log10.(cphdnn[:, "dim_redux"] .+ 1), Array{Float64}(cphdnn[:,"aecph
 axislegend(ax,position =:rt)
 fig
 CairoMakie.save("figures/AECPHDNN_clinf_by_bn_size.pdf",fig)
+aeclfdnn2d = df[(df[:,"nepochs"] .>= 3000) .& (df[:,"model_cv_complete"] ) .& (df[:,"model_type"] .== "aeclfdnn") .& (df[:,"dim_redux"] .== 2),:] # cleanup
+keep = findall(aeclfdnn2d[:,"clf_tst_acc"] .== maximum(aeclfdnn2d[:,"clf_tst_acc"]))
+aeclfdnn2d[keep,["session_id", "modelid"]]
