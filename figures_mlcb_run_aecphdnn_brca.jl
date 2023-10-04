@@ -17,9 +17,9 @@ keep = clinf[:, "clinical_data_PAM50MRNA"] .!= "NA"
 y_lbls = clinf[:, "clinical_data_PAM50MRNA"]
 y_data = label_binarizer(y_lbls)
 x_data = brca_prediction.data[keep,:]
-nepochs, ae_nb_hls, nfolds = 100, 1, 5
+nepochs, ae_nb_hls, nfolds = 3000, 1, 5
 dim_redux_sizes = [1,2,3,4,5,10,15,20,30,50,100,200]
-for dim_redux in reverse(dim_redux_sizes)
+for dim_redux in dim_redux_sizes
     ### AECPHDNN by bottleneck size 
     brca_aecphdnn_params = Dict(
         ## run infos 

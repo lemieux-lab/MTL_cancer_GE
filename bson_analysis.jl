@@ -1,5 +1,9 @@
 using Pkg
+using CUDA
+include("init.jl")
+using NNlib
 Pkg.activate(".")
+Pkg.instantiate()
 using BSON
 roots = []
 for dir1 in readdir("RES/")
@@ -62,7 +66,7 @@ end
 
 df = gather_params("RES/")
 df[:,"model_cv_complete"]
-df = df[(df[:,"nepochs"] .>= 3000) .& (df[:,"model_cv_complete"] ),:] # cleanup
+df_subset = df[(df[:,"nepochs"] .>= 3000) .& (df[:,"model_cv_complete"] ),:] # cleanup
 
 ### AE by BN size
 ae = df[df[:,"model_type"] .== "auto_encoder",:]
@@ -96,10 +100,10 @@ fig
 CairoMakie.save("figures/AE_CLF_by_bn_size_corr.pdf",fig)
 
 ##### CPHDNN clinf noise
-cph = df[df[:, "model_type"] .== "cphdnnclinf",:]
+cph = df[(df[:,"nepochs"] .>= 2000) .& (df[:,"model_cv_complete"] ) .& (df[:,"model_type"] .== "cphdnnclinf"),:]
 cph = cph[cph[:,"cphdnn_train_c_ind"] .!== missing,:]
 cph = cph[cph[:,"insize"] .!== missing,:]
-fig = Figure(resolution = (1024,512));
+fig = Figure(resolution = (1024,312));
 cph[:, "insize"]
 ax = Axis(fig[1,1],
     ylabel = "Concordance index ", 
@@ -112,3 +116,19 @@ ylims!(ax, (0.5,1))
 axislegend(ax,position =:rc)
 fig
 CairoMakie.save("figures/CPHDNN_clinf_by_nb_extra_noise.pdf",fig)
+df = gather_params("RES/")
+cphdnn = df[(df[:,"nepochs"] .>= 2000) .& (df[:,"model_cv_complete"] ) .& (df[:,"model_type"] .== "aecphdnn"),:] # cleanup
+
+#df_subset[:,"aecphdnn_tst_c_ind"]
+fig = Figure(resolution = (1024,512));
+ax = Axis(fig[1,1],
+    ylabel = "Concordance index ", 
+    xlabel = "Size of bottleneck layer",
+    xticks = (log10.(unique(cphdnn[:, "dim_redux"]) .+ 1), ["$x" for x in unique(cphdnn[:, "dim_redux"])] ));
+
+boxplot!(ax, log10.(cphdnn[:, "dim_redux"] .+ 1) , Array{Float64}(cphdnn[:,"aecphdnn_train_c_ind"]), width = 0.2, label = "train")
+boxplot!(ax, log10.(cphdnn[:, "dim_redux"] .+ 1), Array{Float64}(cphdnn[:,"aecphdnn_tst_c_ind"]), width = 0.2,label = "test")
+#ylims!(ax, (0.5,1))
+axislegend(ax,position =:rt)
+fig
+CairoMakie.save("figures/AECPHDNN_clinf_by_bn_size.pdf",fig)
