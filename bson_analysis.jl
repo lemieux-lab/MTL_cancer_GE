@@ -104,11 +104,11 @@ cph[:, "insize"]
 ax = Axis(fig[1,1],
     ylabel = "Concordance index ", 
     xlabel = "Nb of added random features to clinical features",
-    xticks = (log2.(unique(cph[:, "insize"])), ["$x" for x in unique(cph[:, "insize"])] ));
+    xticks = (log.(unique(cph[:, "insize"]) .+ 1), ["$x" for x in unique(cph[:, "insize"])] ));
 
-boxplot!(ax, log2.(cph[:, "insize"]), Array{Float64}(cph[:,"cphdnn_train_c_ind"]), label = "train")
-boxplot!(ax, log2.(cph[:, "insize"]), Array{Float64}(cph[:,"cphdnn_tst_c_ind"]), label = "test")
-
+boxplot!(ax, log.(cph[:, "insize"] .+ 1) , Array{Float64}(cph[:,"cphdnn_train_c_ind"]), width = 0.3, label = "train")
+boxplot!(ax, log.(cph[:, "insize"] .+ 1), Array{Float64}(cph[:,"cphdnn_tst_c_ind"]), width = 0.3,label = "test")
+ylims!(ax, (0.5,1))
 axislegend(ax,position =:rc)
 fig
 CairoMakie.save("figures/CPHDNN_clinf_by_nb_extra_noise.pdf",fig)
