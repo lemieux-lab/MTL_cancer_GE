@@ -684,6 +684,9 @@ end
 function to_cpu(model::enccphdnn)
     return enccphdnn(cpu(model.encoder),cpu(model.cphdnn), model.opt, model.lossf)
 end 
+function to_cpu(model::AE_model)
+    return AE_model(cpu(model.net),cpu(model.encoder), cpu(model.decoder), cpu(model.outpl), model.opt, model.lossf)
+end 
 
 
 # define dump call back 

@@ -43,10 +43,51 @@ function stringify(p::Dict;spacer = 80)
     end
     return s 
 end 
+##########################################
+####### Loss Plotting functions / ########
+####### Callback functions        ########
+##########################################
+function dump_ae_model_cb(dump_freq;export_type=".pdf")
+    return (model, tr_metrics, params_dict, iter::Int, fold) -> begin
+        # check if end of epoch / start / end 
+        if iter % dump_freq == 0 || iter == 0 || iter == params_dict["nepochs"]
+            model_params_path = "$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"])"
+            # saves model
+            bson("RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
+            # plot learning curve
+            lr_fig_outpath = "RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
+            plot_learning_curves_ae(tr_metrics, params_dict, lr_fig_outpath)
+        end
+    end 
+end
+
 
 ##########################################
 ####### Plotting functions    ############
 ##########################################
+function plot_learning_curves_ae(tr_metrics,params_dict,lr_fig_outpath)
+    loss_tst = [x[3] for x in tr_metrics]
+    loss_tr = [x[1] for x in tr_metrics]
+    corr_tst = [x[4] for x in  tr_metrics]
+    corr_tr =[x[2] for x in  tr_metrics]
+    steps = collect(1:size(loss_tst)[1])
+    fig = Figure(resolution = (1024,1024))
+    ax1 = Axis(fig[1,1], xlabel = "steps", ylabel = "Auto-Encoder MSE loss")
+    lines!(fig[1,1], steps, loss_tr, linewidth = 5,  color = (:blue, 0.55),label ="train")
+    lines!(fig[1,1], steps, loss_tr, linewidth = 2,  color = :black)
+    lines!(fig[1,1], steps, loss_tst, linewidth = 5,  color = (:red, 0.55), label = "test")
+    lines!(fig[1,1], steps, loss_tst, linewidth = 2,  color = :black)
+    
+    axislegend(ax1, position = :rc)
+    fig[2,1] = Axis(fig, xlabel = "steps", ylabel = "Pearson correlation coefficient")
+    lines!(fig[2,1], steps, corr_tr, linewidth = 5,  color = (:blue, 0.55))
+    lines!(fig[2,1], steps, corr_tr, linewidth = 2,  color = :black)
+    lines!(fig[2,1], steps, corr_tst, linewidth = 5,  color = (:red, 0.55))
+    lines!(fig[2,1], steps, corr_tst, linewidth = 2,  color = :black)
+    
+    CairoMakie.save(lr_fig_outpath, fig)
+end
+
 function plot_embed_train_test_2d(model, fold, params_dict)
     X_tr = cpu(model.ae.encoder(gpu(fold["train_x"]')))
     X_tst = cpu(model.ae.encoder(gpu(fold["test_x"]')))

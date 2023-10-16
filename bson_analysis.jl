@@ -1,54 +1,8 @@
-using Pkg
-using CUDA
 include("init.jl")
-using NNlib
-Pkg.activate(".")
-Pkg.instantiate()
-using BSON
-roots = []
-for dir1 in readdir("RES/")
-    if isdir("RES/$dir1/")
-    for dir2 in readdir("RES/$dir1/")
-        if isdir("RES/$dir1/$dir2")
-            root = "RES/$dir1/$dir2"
-            #println(readdir(root))
-            if "params.bson" in readdir(root)
-                push!(roots, BSON.load("$root/params.bson"))
-            end 
-        end 
-    end 
-end
-end
-roots
-
-
-params_dict = Dict()
-size = 0
-for root in roots
-    for key in keys(root)
-        if !(key in keys(params_dict))
-            newcol = Vector{Union{Missing, Any}}(missing, size + 1)
-            newcol[end] = root[key]
-            params_dict[key] = newcol
-        else 
-            push!(params_dict[key],root[key])
-        end
-    end 
-    size += 1
-end
-[size(params_dict[key])[1] for key in keys(params_dict)]
-features = ["clf_tst_acc", "dim_redux"]
-params_dict["dim_redux"]
-DataFrame(Dict([(k, params_dict[k]) for k in features]))
-
 using BSON
 using DataFrames
 
-Params = Dict{String, Any}
 
-BSON.bson("test/1/params.bson", Params("a" => 1.0, "b" => 2))
-BSON.bson("test/2/params.bson", Params("b" => 3, "c" => 4f0))
-BSON.bson("test/3/params.bson", Params("a" => 5.0, "b" => 6, "c" => 7f0))
 
 function gather_params(basedir=".")
     df = DataFrame()

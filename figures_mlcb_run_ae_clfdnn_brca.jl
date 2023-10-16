@@ -65,7 +65,7 @@ end
 ###### Bottleneck dimensionality in Auto-Encoders 
 ## 4 Auto-Encoder train, test recontstruction correlation by bottleneck size. x10 replicate BOXPLOT.
 
-nfolds, ae_nb_hls = 5, 1
+nfolds, ae_nb_hls, nepochs = 5, 1, 30_000
 dim_redux_sizes = [1,2,3,4,5,10,15,20,30,50,100,200,300,500,1000,2000]
 for (i,dim_redux) in enumerate(dim_redux_sizes)
     brca_ae_params = Dict("model_title"=>"AE_BRCA_DIM_REDUX_$dim_redux", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
@@ -75,12 +75,20 @@ for (i,dim_redux) in enumerate(dim_redux_sizes)
         "nfolds" => 5,  "nepochs" => nepochs, "mb_size" => 200, "ae_lr" => 1e-3, "wd" => 1e-4, "dim_redux" => dim_redux, 
         "ae_hl_size"=> 128, "enc_hl_size" => 128, "dec_nb_hl" => ae_nb_hls, "dec_hl_size" => 128, "enc_nb_hl" =>ae_nb_hls, 
         "nb_clinf"=>5, "model_cv_complete" => false)
-    brca_ae_cb = dump_aeclfdnn_model_cb(1000, y_lbls, export_type = "pdf") # dummy
+    brca_ae_cb = dump_ae_model_cb(1000, export_type = "pdf") # dummy
 
     bmodel, bmfold, outs_test, x_test, outs_train, x_train = validate_auto_encoder!(brca_ae_params, brca_prediction, brca_ae_cb, clinf;build_adaptative=false);
 end
 
+fig = Figure(resolution = (1024,1024));
+fig[1,1] = Axis(fig, xlabel = "steps", ylabel = "Auto-Encoder MSE loss")
+steps = collect(1:100)
+loss_tr = sin.(steps)
+loss_tst = sin.(steps .+1)
 
+lines!(fig[1,1], steps, loss_tst, linewidth = 4,  color = (:blue,0.75))
+lines!(fig[1,1], steps, loss_tr, linewidth = 4,  color = (:red,0.6))
+fig
 
 ###### CPHDNN noisy input features leads to overfitting problem
 ## no noise
