@@ -19,9 +19,11 @@ function gather_params(basedir=".")
 end
 
 df = gather_params("RES/")
-df[:,"model_cv_complete"]
-df_subset = df[(df[:,"nepochs"] .>= 3000) .& (df[:,"model_cv_complete"] ),:] # cleanup
-
+#df[:,"model_cv_complete"]
+df = df[(df[:,"nepochs"] .>= 30000) .& (df[:,"model_cv_complete"] ),:] # cleanup
+od = df[1:2,findall(Matrix(df)[1,:] .!== missing)]
+CSV.write("tmp.csv", od)
+df[1,findall(vec(df[1,:] .!== missing))]
 ### AE by BN size
 ae = df[df[:,"model_type"] .== "auto_encoder",:]
 ae = ae[ae[:,"ae_tst_corr"] .!== missing,:]

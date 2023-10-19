@@ -47,13 +47,14 @@ end
 ####### Loss Plotting functions / ########
 ####### Callback functions        ########
 ##########################################
+## train loss data dump!
 function dump_ae_model_cb(dump_freq;export_type=".pdf")
     return (model, tr_metrics, params_dict, iter::Int, fold) -> begin
         # check if end of epoch / start / end 
         if iter % dump_freq == 0 || iter == 0 || iter == params_dict["nepochs"]
             model_params_path = "$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"])"
             # saves model
-            bson("RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
+            # bson("RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
             # plot learning curve
             lr_fig_outpath = "RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
             plot_learning_curves_ae(tr_metrics, params_dict, lr_fig_outpath)
@@ -70,6 +71,7 @@ function plot_learning_curves_ae(tr_metrics,params_dict,lr_fig_outpath)
     loss_tr = [x[1] for x in tr_metrics]
     corr_tst = [x[4] for x in  tr_metrics]
     corr_tr =[x[2] for x in  tr_metrics]
+    CSV.write(lr_fig_outpath, DataFrame(Dict(:loss_tst=>loss_tst, :loss_tr=>loss_tr,:corr_tst=>corr_tst,:corr_tr=>corr_tr)))
     steps = collect(1:size(loss_tst)[1])
     fig = Figure(resolution = (1024,1024))
     ax1 = Axis(fig[1,1], xlabel = "steps", ylabel = "Auto-Encoder MSE loss")
