@@ -8,6 +8,11 @@ outpath, session_id = set_dirs()
 
 ### TCGA (all 33 cancer types)
 tcga_prediction = GDC_data("Data/GDC_processed/TCGA_TPM_hv_subset.h5", log_transform = true, shuffled =true);
+tmp1 = GDC_data("Data/GDC_processed/TCGA_TPM_hv_subset.h5")
+tmp2 = GDC_data("Data/GDC_processed/TCGA_TPM_lab.h5")
+tmp1.targets .== tmp2.targets
+
+tcga_prediction.cols
 #tcga_prediction = GDC_data("Data/GDC_processed/TCGA_TPM_lab.h5", log_transform = true, shuffled =true);
 abbrv = tcga_abbrv()
 ##### BRCA (5 subtypes)
@@ -85,9 +90,10 @@ using TSne
 @time TCGA_tsne = tsne(tcga_prediction.data, 2, 50, 1000, 30.0;verbose=true,progress=true)
 TCGA_tsne
 labs_appd
-tsne2d_df = DataFrame(Dict("tsne_1"=>TCGA_tsne[:,1], "tsne_2"=>TCGA_tsne[:,2], "labels"=>labs_appd)) 
+tsne2d_df = DataFrame(Dict("tsne_1"=>TCGA_tsne[:,1], "tsne_2"=>TCGA_tsne[:,2], "labels"=>labs_appdf(tcga_abbrv(tcga_prediction.targets)))) 
 p= AlgebraOfGraphics.data(tsne2d_df) * mapping(:tsne_1, :tsne_2, color=:labels, marker=:labels) 
-fig = draw(p, axis = (;aspect=1, title="2D T-SNE (p=30.0) from TCGA gene expression data $(size(tcga_prediction.data)) \nwith PCA init. Cancer types groups.", width = 800, height = 1000));
+fig = draw(p, axis = (;aspect=DataAspect(), title="2D T-SNE (p=30.0) from TCGA gene expression data $(size(tcga_prediction.data)) \nwith PCA init. Cancer types groups.", width = 800, height = 1000));
+fig
 CairoMakie.save("figures/tsne_tcga.pdf", fig)
 ### dimensionality reductions 
 model = build(mtl_ae_params)
