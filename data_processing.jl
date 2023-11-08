@@ -268,8 +268,8 @@ struct LGN_data
     data::Matrix # gene expression data
     samples::Array # sample ids (case_ids)
     genes::Array # gene names 
-    survt::Array # survival times
-    surve::Array # censorship
+    #survt::Array # survival times
+    #surve::Array # censorship
     #age::Array # patient age 
     cyto_group::Array
     #stage::Array # cancer stage 

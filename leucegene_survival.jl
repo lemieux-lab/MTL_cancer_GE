@@ -6,6 +6,7 @@ include("mtl_engines.jl")
 include("utils.jl")
 include("SurvivalDev.jl")
 include("lgn_data_processing.jl")
+include("cross_validation.jl")
 ### loading data 
 outpath, session_id = set_dirs() 
 basepath = "/u/sauves/MTL_cancer_GE/"
@@ -19,14 +20,20 @@ cf.interest_groups = interest_groups
 ge_cds_raw_data = CSV.read(ge_cds_fname, DataFrame)
 lsc17 = CSV.read(ge_lsc17_fname, DataFrame)
 ge_cds_all = log_transf_high_variance(ge_cds_raw_data, frac_genes=0.50, avg_norm = false)
-ge_cds_all.data
-#lgn_prediction = GDC_data_surv(ge_cds_all.data, ge_cds_all.factor_1, ge_cds_all.factor_2, interest_groups, cf[:,"Overall_Survival_Time_days"], cf[:,"Overall_Survival_Status"])
-lgn_prediction = LGN_data()
-lgn_lsc17_prediction = GDC_data_surv(Matrix(lsc17[:,2:end]), vec(lsc17[:,1]),vec(names(lsc17)[2:end]) , interest_groups, cf[:,"Overall_Survival_Time_days"], cf[:,"Overall_Survival_Status"])
 
+#lgn_prediction = GDC_data_surv(ge_cds_all.data, ge_cds_all.factor_1, ge_cds_all.factor_2, interest_groups, cf[:,"Overall_Survival_Time_days"], cf[:,"Overall_Survival_Status"])
+ge_cds_all
 y_lbls = cf[:, "WHO classification"]
+names(cf)
+dat = Matrix(ge_cds_raw_data[:,2:end])
+gens =names(ge_cds_raw_data)[2:end]
+ndat, ngens = minmaxnorm(dat, gens)
+lgn_prediction = GDC_data(ndat, Array(ge_cds_raw_data[:,1]), ngens, y_lbls)
+#lgn_lsc17_prediction = GDC_data_surv(Matrix(lsc17[:,2:end]), vec(lsc17[:,1]),vec(names(lsc17)[2:end]) , interest_groups, cf[:,"Overall_Survival_Time_days"], cf[:,"Overall_Survival_Status"])
+
 y_data = label_binarizer(y_lbls)
 x_data = lgn_prediction.data
+
 ######### Leucegene AML cancer data
 ###### Proof of concept with Auto-Encoder classifier DNN. Provides directed dimensionality reductions
 ## 1 CLFDNN-AE 2D vs random x10 replicat accuracy BOXPLOT, train test samples by class bn layer 2D SCATTER. 
@@ -34,14 +41,17 @@ nepochs = 3000
 nfolds, ae_nb_hls, dim_redux = 5, 1, 2
 lgn_aeclfdnn_params = Dict("model_title"=>"AE_CLF_LGN_2D", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "lgn_prediction", 
 "model_type" => "aeclfdnn", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => "$(device())", 
-"nsamples_train" => length(lgn_prediction.samples) - Int(round(length(lgn_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(lgn_prediction.samples) / nfolds)),
-"nsamples" => length(lgn_prediction.samples[keep]) , "insize" => length(lgn_prediction.genes), "ngenes" => length(lgn_prediction.genes),  
+"nsamples_train" => length(lgn_prediction.rows) - Int(round(length(lgn_prediction.rows) / nfolds)), "nsamples_test" => Int(round(length(lgn_prediction.rows) / nfolds)),
+"nsamples" => length(lgn_prediction.rows) , "insize" => length(lgn_prediction.cols), "ngenes" => length(lgn_prediction.cols),  
 "nfolds" => 5,  "nepochs" => nepochs, "ae_lr" => 1e-4, "wd" => 1e-3, "dim_redux" => dim_redux, 
 "ae_hl_size"=>128,"enc_hl_size" => 128, "dec_nb_hl" => ae_nb_hls, "dec_hl_size" => 128, "enc_nb_hl" =>ae_nb_hls, "n.-lin" => leakyrelu,
 "clfdnn_lr" => 1e-3, "clfdnn_nb_hl" => 2, "clfdnn_hl_size" => 64, "outsize" => size(y_data)[2], "model_cv_complete" => false)
 lgn_clf_cb = dump_aeclfdnn_model_cb(1000, y_lbls, export_type = "pdf")
 
-bmodel, bmfold, outs_test, y_test, outs_train, y_train = validate_aeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)
+lgn_prediction.data
+
+model = build(lgn_aeclfdnn_params;adaptative=false)
+bmodel, bmfold, outs_test, y_test, outs_train, y_train = validate_aeclfdnn!(lgn_aeclfdnn_params, x_data, y_data, lgn_prediction.rows, lgn_clf_cb)
 
 
 
