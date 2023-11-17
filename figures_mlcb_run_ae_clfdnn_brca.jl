@@ -45,8 +45,8 @@ model.ae2d
 #### 2D AE train - test
 bmodel, bmfold, outs_test, y_test, outs_train, y_train = validate_aeaeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)
 
-
-
+X_proj = Matrix(cpu(bmodel.ae2d.encoder(bmodel.encoder(gpu(bmfold["train_x"]')))'))
+X_proj
 
 
 bmodel, bmfold, outs_test, y_test, outs_train, y_train = validate_aeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)

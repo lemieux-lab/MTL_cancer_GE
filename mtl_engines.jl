@@ -737,6 +737,9 @@ function bootstrap(acc_function, tlabs, plabs; bootstrapn = 1000)
     return low_ci, med, upp_ci
 end 
 ####### CAllback functions
+function to_cpu(model::AE_AE_DNN)
+    return AE_AE_DNN(cpu(model.ae), cpu(model.clf), cpu(model.encoder),cpu(model.ae2d))
+end 
 function to_cpu(model::mtl_AE)
     return mtl_AE(cpu(model.ae), cpu(model.clf), cpu(model.encoder))
 end 
