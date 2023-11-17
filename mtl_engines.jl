@@ -96,6 +96,12 @@ struct AE_model
     opt
     lossf
 end 
+struct AE_AE_DNN
+    ae::AE_model 
+    clf::dnn
+    encoder::Chain
+    ae2d::AE_model
+end 
 
 function AE_model(params::Dict)
     ## 2 x 2 Hidden layers Auto-Encoder model architecture.  
@@ -368,6 +374,66 @@ function build(model_params; adaptative=true)
         clf_lossf = crossentropy_l2
         clf = dnn(clf_chain, clf_opt, clf_lossf)
         model = mtl_AE(AE, clf, AE.encoder)
+    elseif model_params["model_type"] == "aeaeclfdnn"
+        c = compute_c(model_params["insize"], model_params["dim_redux"], model_params["enc_nb_hl"] )
+        enc_hls = []
+        hl_sizes = [Int(floor(model_params["dim_redux"] * c ^ x)) for x in 1:model_params["enc_nb_hl"]]
+        hl_sizes = adaptative ?  hl_sizes  : Array{Int}(ones(10) .* model_params["ae_hl_size"])
+        for i in 1:model_params["enc_nb_hl"]
+            in_size = i == 1 ? model_params["insize"] : reverse(hl_sizes)[i - 1]
+            out_size = reverse(hl_sizes)[i]
+            push!(enc_hls, gpu(Flux.Dense(in_size, out_size, leakyrelu)))
+        end 
+        redux_layer = gpu(Flux.Dense(reverse(hl_sizes)[end], model_params["dim_redux"],identity))
+        encoder = Flux.Chain(enc_hls..., redux_layer)
+        dec_hls = []
+        for i in 1:model_params["enc_nb_hl"]
+            in_size = i == 1 ? model_params["dim_redux"] : hl_sizes[i - 1]
+            out_size = hl_sizes[i]
+            push!(dec_hls, gpu(Flux.Dense(in_size, out_size, leakyrelu)))
+        end
+        output_layer = gpu(Flux.Dense(hl_sizes[end], model_params["insize"], leakyrelu))
+        decoder = Flux.Chain(dec_hls..., output_layer)
+        ae_chain = Flux.Chain(enc_hls..., redux_layer, dec_hls..., output_layer)
+        AE = AE_model(ae_chain, encoder, decoder, output_layer, Flux.ADAM(model_params["ae_lr"]), mse_l2) 
+        # classifier DNN
+        c = compute_c(model_params["dim_redux"], model_params["outsize"], model_params["clfdnn_nb_hl"] )
+        hls = []
+        hl_sizes = [Int(floor(model_params["outsize"] * c ^ x)) for x in 1:model_params["clfdnn_nb_hl"]]
+        hl_sizes = !adaptative ? Array{Int}(ones(10) .* model_params["clfdnn_hl_size"]) : hl_sizes  
+        for i in 1:model_params["clfdnn_nb_hl"]
+            in_size = i == 1 ? model_params["dim_redux"] : reverse(hl_sizes)[i - 1]
+            out_size = reverse(hl_sizes)[i]
+            push!(hls, gpu(Flux.Dense(in_size, out_size, model_params["n.-lin"])))
+        end
+        clf_chain = gpu(Chain(encoder..., hls..., Dense(hl_sizes[end], model_params["outsize"], identity)))
+        
+        clf_opt = Flux.ADAM(model_params["clfdnn_lr"])
+        clf_lossf = crossentropy_l2
+        clf = dnn(clf_chain, clf_opt, clf_lossf)
+        # 2D encoder 
+        c = compute_c(model_params["dim_redux"], 2, model_params["enc_nb_hl"] )
+        enc_hls = []
+        hl_sizes = [Int(floor(2 * c ^ x)) for x in 1:model_params["enc_nb_hl"]]
+        hl_sizes = adaptative ?  hl_sizes  : Array{Int}(ones(10) .* model_params["ae_hl_size"])
+        for i in 1:model_params["enc_nb_hl"]
+            in_size = i == 1 ? model_params["dim_redux"] : reverse(hl_sizes)[i - 1]
+            out_size = reverse(hl_sizes)[i]
+            push!(enc_hls, gpu(Flux.Dense(in_size, out_size, leakyrelu)))
+        end 
+        redux_layer = gpu(Flux.Dense(reverse(hl_sizes)[end], 2, identity))
+        encoder = Flux.Chain(enc_hls..., redux_layer)
+        dec_hls = []
+        for i in 1:model_params["enc_nb_hl"]
+            in_size = i == 1 ? 2 : hl_sizes[i - 1]
+            out_size = hl_sizes[i]
+            push!(dec_hls, gpu(Flux.Dense(in_size, out_size, leakyrelu)))
+        end
+        output_layer = gpu(Flux.Dense(hl_sizes[end], model_params["dim_redux"], leakyrelu))
+        decoder = Flux.Chain(dec_hls..., output_layer)
+        ae_chain = Flux.Chain(enc_hls..., redux_layer, dec_hls..., output_layer)
+        AE2D = AE_model(ae_chain, encoder, decoder, output_layer, Flux.ADAM(model_params["ae_lr"]), mse_l2) 
+        model = AE_AE_DNN(AE, clf, AE.encoder, AE2D)
     elseif model_params["model_type"] == "aecphdnn"
         c = compute_c(model_params["insize"], model_params["dim_redux"], model_params["enc_nb_hl"] )
         enc_hls = []

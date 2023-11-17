@@ -21,15 +21,33 @@ x_data = brca_prediction.data[keep,:]
 ###### Proof of concept with Auto-Encoder classifier DNN. Provides directed dimensionality reductions
 ## 1 CLFDNN-AE 2D vs random x10 replicat accuracy BOXPLOT, train test samples by class bn layer 2D SCATTER. 
 nepochs = 3000
-nfolds, ae_nb_hls, dim_redux = 5, 1, 2
-brca_aeclfdnn_params = Dict("model_title"=>"AE_CLF_BRCA_2D", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
-"model_type" => "aeclfdnn", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => "$(device())", 
+nfolds, ae_nb_hls, dim_redux = 5, 1, 125
+brca_aeclfdnn_params = Dict("model_title"=>"AE_AE_CLF_BRCA_2D", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
+"model_type" => "aeaeclfdnn", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => "$(device())", 
 "nsamples_train" => length(brca_prediction.samples[keep]) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples[keep]) / nfolds)),
 "nsamples" => length(brca_prediction.samples[keep]) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
 "nfolds" => 5,  "nepochs" => nepochs, "ae_lr" => 1e-4, "wd" => 1e-3, "dim_redux" => dim_redux, 
 "ae_hl_size"=>128,"enc_hl_size" => 128, "dec_nb_hl" => ae_nb_hls, "dec_hl_size" => 128, "enc_nb_hl" =>ae_nb_hls, "n.-lin" => leakyrelu,
 "clfdnn_lr" => 1e-3, "clfdnn_nb_hl" => 2, "clfdnn_hl_size" => 64, "outsize" => size(y_data)[2], "model_cv_complete" => false)
 brca_clf_cb = dump_aeclfdnn_model_cb(1000, y_lbls, export_type = "pdf")
+
+
+##### 2D-AE + AE + DNN (clf) 
+
+#### split 80 /20
+folds = split_train_test(x_data, y_data, brca_prediction.samples;nfolds = nfolds)
+model = build(brca_aeclfdnn_params; adaptative=true)
+model.ae2d
+#### train
+    #### metrics train - test
+    #### 2D AE train - test
+#### FINAL metrics train - test
+#### 2D AE train - test
+bmodel, bmfold, outs_test, y_test, outs_train, y_train = validate_aeaeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)
+
+
+
+
 
 bmodel, bmfold, outs_test, y_test, outs_train, y_train = validate_aeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)
 
