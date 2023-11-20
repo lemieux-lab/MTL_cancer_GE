@@ -20,7 +20,7 @@ x_data = brca_prediction.data[keep,:]
 ######### TCGA breast cancer
 ###### Proof of concept with Auto-Encoder classifier DNN. Provides directed dimensionality reductions
 ## 1 CLFDNN-AE 2D vs random x10 replicat accuracy BOXPLOT, train test samples by class bn layer 2D SCATTER. 
-nepochs = 3000
+nepochs = 10000
 nfolds, ae_nb_hls, dim_redux = 5, 1, 125
 brca_aeclfdnn_params = Dict("model_title"=>"AE_AE_CLF_BRCA_2D", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "aeaeclfdnn", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => "$(device())", 
@@ -46,7 +46,13 @@ model.ae2d
 bmodel, bmfold, outs_test, y_test, outs_train, y_train = validate_aeaeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)
 
 X_proj = Matrix(cpu(bmodel.ae2d.encoder(bmodel.encoder(gpu(bmfold["train_x"]')))'))
-X_proj
+tr_labels = y_lbls[bmfold["train_ids"]]
+tr_embed = DataFrame(:emb1=>X_proj[:,1], :emb2=>X_proj[:,2], :cancer_type => tr_labels)
+train = AlgebraOfGraphics.data(tr_embed) * mapping(:emb1,:emb2,color = :cancer_type,marker = :cancer_type) * visual(markersize =20)
+fig = draw(train, axis = (;aspect = AxisAspect(1), autolimitaspect = 1, width = 1024, height =1024,
+title="$(brca_aeclfdnn_params["model_type"]) on $(brca_aeclfdnn_params["dataset"]) data\naccuracy by DNN TRAIN: $(round(brca_aeclfdnn_params["clf_tr_acc"] * 100, digits=2))% TEST: $(round(brca_aeclfdnn_params["clf_tst_acc"]*100, digits=2))%"))
+fig    
+    
 
 
 bmodel, bmfold, outs_test, y_test, outs_train, y_train = validate_aeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)

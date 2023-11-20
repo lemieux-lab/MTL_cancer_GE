@@ -384,7 +384,7 @@ function build(model_params; adaptative=true)
             out_size = reverse(hl_sizes)[i]
             push!(enc_hls, gpu(Flux.Dense(in_size, out_size, leakyrelu)))
         end 
-        redux_layer = gpu(Flux.Dense(reverse(hl_sizes)[end], model_params["dim_redux"],identity))
+        redux_layer = gpu(Flux.Dense(reverse(hl_sizes)[end], model_params["dim_redux"],leakyrelu))
         encoder = Flux.Chain(enc_hls..., redux_layer)
         dec_hls = []
         for i in 1:model_params["enc_nb_hl"]
