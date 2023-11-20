@@ -1,7 +1,10 @@
 include("init.jl")
+include("data_processing.jl")
+include("cross_validation.jl")
+include("mtl_engines.jl")
 using BSON
 using DataFrames
-
+device!()
 
 
 function gather_params(basedir=".")
@@ -19,8 +22,29 @@ function gather_params(basedir=".")
 end
 
 df = gather_params("RES/")
+
 #df[:,"model_cv_complete"]
-df = df[(df[:,"nepochs"] .>= 30000) .& (df[:,"model_cv_complete"] ),:] # cleanup
+df = df[(df[:,"nepochs"] .>= 30000),:] # .& (df[:,"model_cv_complete"] ),:] # cleanup
+
+unique(df[:, "model_type"])
+## train_x
+infile = "Data/GDC_processed/TCGA_BRCA_surv_cf_fpkm.h5"
+brca_prediction = BRCA_data(infile, minmax_norm = true)
+nsamples = size(brca_prediction.samples)[1]
+#clinf = assemble_clinf(brca_prediction)
+#CSV.write("Data/GDC_processed/TCGA_clinical_features_survival_pam50.csv", PAM50_data )
+clinf = CSV.read("Data/GDC_processed/TCGA_clinical_features_survival_pam50.csv", DataFrame)
+keep = clinf[:, "clinical_data_PAM50MRNA"] .!= "NA"
+y_lbls = clinf[keep, "clinical_data_PAM50MRNA"]
+y_data = label_binarizer(y_lbls)
+x_data = brca_prediction.data[keep,:]
+## load model BSON
+bmodel = df[df[:, "model_type"] .== "aeaeclfdnn",["session_id","model_type", "modelid"]][2,:]
+inpath = "./RES/$(bmodel[1])/$(bmodel[2])_$(bmodel[3])/FOLD001/model_000030000.bson"
+## AE
+model = BSON.load(inpath)["model"]
+## AE2D
+
 od = df[1:2,findall(Matrix(df)[1,:] .!== missing)]
 CSV.write("tmp.csv", od)
 df[1,findall(vec(df[1,:] .!== missing))]

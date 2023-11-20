@@ -20,16 +20,16 @@ x_data = brca_prediction.data[keep,:]
 ######### TCGA breast cancer
 ###### Proof of concept with Auto-Encoder classifier DNN. Provides directed dimensionality reductions
 ## 1 CLFDNN-AE 2D vs random x10 replicat accuracy BOXPLOT, train test samples by class bn layer 2D SCATTER. 
-nepochs = 10000
+nepochs = 30_000
 nfolds, ae_nb_hls, dim_redux = 5, 1, 125
 brca_aeclfdnn_params = Dict("model_title"=>"AE_AE_CLF_BRCA_2D", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "aeaeclfdnn", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => "$(device())", 
 "nsamples_train" => length(brca_prediction.samples[keep]) - Int(round(length(brca_prediction.samples) / nfolds)), "nsamples_test" => Int(round(length(brca_prediction.samples[keep]) / nfolds)),
 "nsamples" => length(brca_prediction.samples[keep]) , "insize" => length(brca_prediction.genes), "ngenes" => length(brca_prediction.genes),  
-"nfolds" => 5,  "nepochs" => nepochs, "ae_lr" => 1e-4, "wd" => 1e-3, "dim_redux" => dim_redux, 
+"nfolds" => 5,  "nepochs" => nepochs, "ae_lr" => 1e-6, "wd" => 1e-3, "dim_redux" => dim_redux, 
 "ae_hl_size"=>128,"enc_hl_size" => 128, "dec_nb_hl" => ae_nb_hls, "dec_hl_size" => 128, "enc_nb_hl" =>ae_nb_hls, "n.-lin" => leakyrelu,
-"clfdnn_lr" => 1e-3, "clfdnn_nb_hl" => 2, "clfdnn_hl_size" => 64, "outsize" => size(y_data)[2], "model_cv_complete" => false)
-brca_clf_cb = dump_aeclfdnn_model_cb(1000, y_lbls, export_type = "pdf")
+"clfdnn_lr" => 1e-6, "clfdnn_nb_hl" => 2, "clfdnn_hl_size" => 64, "outsize" => size(y_data)[2], "model_cv_complete" => false)
+brca_clf_cb = dump_aeaeclfdnn_model_cb(1000, y_lbls, export_type = "pdf")
 
 
 ##### 2D-AE + AE + DNN (clf) 
@@ -38,11 +38,8 @@ brca_clf_cb = dump_aeclfdnn_model_cb(1000, y_lbls, export_type = "pdf")
 folds = split_train_test(x_data, y_data, brca_prediction.samples;nfolds = nfolds)
 model = build(brca_aeclfdnn_params; adaptative=true)
 model.ae2d
-#### train
-    #### metrics train - test
-    #### 2D AE train - test
-#### FINAL metrics train - test
-#### 2D AE train - test
+# bson("test.bson", Dict("model"=> to_cpu(model)))
+# model = BSON.load("model_000001000.bson")["model"]
 bmodel, bmfold, outs_test, y_test, outs_train, y_train = validate_aeaeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)
 
 X_proj = Matrix(cpu(bmodel.ae2d.encoder(bmodel.encoder(gpu(bmfold["train_x"]')))'))
@@ -53,7 +50,9 @@ fig = draw(train, axis = (;aspect = AxisAspect(1), autolimitaspect = 1, width = 
 title="$(brca_aeclfdnn_params["model_type"]) on $(brca_aeclfdnn_params["dataset"]) data\naccuracy by DNN TRAIN: $(round(brca_aeclfdnn_params["clf_tr_acc"] * 100, digits=2))% TEST: $(round(brca_aeclfdnn_params["clf_tst_acc"]*100, digits=2))%"))
 fig    
     
-
+emb_fig_outpath = "RES/$session_id/$(brca_aeclfdnn_params["model_type"])_$(brca_aeclfdnn_params["modelid"])_AE_2D_final_model_30000.pdf"
+CairoMakie.save(emb_fig_outpath, fig)
+            
 
 bmodel, bmfold, outs_test, y_test, outs_train, y_train = validate_aeclfdnn!(brca_aeclfdnn_params, x_data, y_data, brca_prediction.samples[keep], brca_clf_cb)
 

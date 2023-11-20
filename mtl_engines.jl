@@ -764,8 +764,8 @@ function dump_model_cb(dump_freq, labels; export_type = "png")
         # check if end of epoch / start / end 
         if iter % dump_freq == 0 || iter == 0 || iter == params_dict["nepochs"]
             model_params_path = "$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"])"
-            # saves model
-            bson("RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
+            # saves model BUGGED 
+            # bson("RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
             # plot learning curve
             lr_fig_outpath = "RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
             plot_learning_curves_aeclf(tr_metrics, params_dict, lr_fig_outpath)
@@ -786,23 +786,27 @@ function dump_model_cb(dump_freq, labels; export_type = "png")
     end 
 end 
 
-function dump_aeclfdnn_model_cb(dump_freq, labels; export_type = "png")
+function dump_aeaeclfdnn_model_cb(dump_freq, labels; export_type = "png")
     return (model, tr_metrics, params_dict, iter::Int, fold) -> begin 
         # check if end of epoch / start / end 
         if iter % dump_freq == 0 || iter == 0 || iter == params_dict["nepochs"]
             model_params_path = "$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"])"
-            # saves model
-            bson("RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
+            # saves model BUGGED
+            # bson("RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
             # plot learning curve
             lr_fig_outpath = "RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
-            plot_learning_curves_aeclf(tr_metrics, params_dict, lr_fig_outpath)
+            plot_learning_curves_aeaeclf(tr_metrics, params_dict, lr_fig_outpath)
             # plot embedding
-            X_tr = cpu(model.encoder(gpu(fold["train_x"]')))
-            X_tst = cpu(model.encoder(gpu(fold["test_x"]')))
-            
-            tr_lbls = labels[fold["train_ids"]]
-            tst_lbls = labels[fold["test_ids"]]
+            X_proj = Matrix(cpu(model.ae2d.encoder(model.encoder(gpu(fold["train_x"]')))'))
+            tr_labels = labels[fold["train_ids"]]
+            tr_embed = DataFrame(:emb1=>X_proj[:,1], :emb2=>X_proj[:,2], :cancer_type => tr_labels)
+            train = AlgebraOfGraphics.data(tr_embed) * mapping(:emb1,:emb2,color = :cancer_type,marker = :cancer_type) * visual(markersize =20)
+            tr_acc,tst_acc = tr_metrics[end][2], tr_metrics[end][8]
+            fig = draw(train, axis = (;aspect = AxisAspect(1), autolimitaspect = 1, width = 1024, height =1024,
+            title="$(params_dict["model_type"]) on $(params_dict["dataset"]) data\naccuracy by DNN TRAIN: $(round(tr_acc* 100, digits=2))% TEST: $(round(tst_acc*100, digits=2))%"))
+
             emb_fig_outpath = "RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad=3))/model_$(zpad(iter)).$export_type"
+            CairoMakie.save(emb_fig_outpath, fig)
             #plot_embed(X_tr, X_tst, tr_lbls, tst_lbls,  params_dict, emb_fig_outpath;acc="clf_tr_acc")
             #fig = Figure(resolution = (1024,1024));
             #ax = Axis(fig[1,1];xlabel="Predicted", ylabel = "True Expr.", title = "Predicted vs True of $(brca_ae_params["ngenes"]) Genes Expression Profile TCGA BRCA with AE \n$(round(ae_cor_test;digits =3))", aspect = DataAspect())
