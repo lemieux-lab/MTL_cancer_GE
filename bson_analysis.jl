@@ -24,7 +24,7 @@ end
 df = gather_params("RES/")
 
 #df[:,"model_cv_complete"]
-df = df[(df[:,"nepochs"] .>= 30000),:] # .& (df[:,"model_cv_complete"] ),:] # cleanup
+df = df[(df[:,"nepochs"] .>= 50_000),:] # .& (df[:,"model_cv_complete"] ),:] # cleanup
 
 unique(df[:, "model_type"])
 ## train_x
