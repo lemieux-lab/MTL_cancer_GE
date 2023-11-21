@@ -20,7 +20,7 @@ x_data = brca_prediction.data[keep,:]
 ######### TCGA breast cancer
 ###### Proof of concept with Auto-Encoder classifier DNN. Provides directed dimensionality reductions
 ## 1 CLFDNN-AE 2D vs random x10 replicat accuracy BOXPLOT, train test samples by class bn layer 2D SCATTER. 
-nepochs = 30_000
+nepochs = 50_000
 nfolds, ae_nb_hls, dim_redux = 5, 1, 125
 brca_aeclfdnn_params = Dict("model_title"=>"AE_AE_CLF_BRCA_2D", "modelid" => "$(bytes2hex(sha256("$(now())"))[1:Int(floor(end/3))])", "dataset" => "brca_prediction", 
 "model_type" => "aeaeclfdnn", "session_id" => session_id, "machine_id"=>strip(read(`hostname`, String)), "device" => "$(device())", 

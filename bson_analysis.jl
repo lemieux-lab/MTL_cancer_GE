@@ -4,7 +4,7 @@ include("cross_validation.jl")
 include("mtl_engines.jl")
 using BSON
 using DataFrames
-device!()
+#device!()
 
 
 function gather_params(basedir=".")
@@ -39,7 +39,7 @@ y_lbls = clinf[keep, "clinical_data_PAM50MRNA"]
 y_data = label_binarizer(y_lbls)
 x_data = brca_prediction.data[keep,:]
 ## load model BSON
-bmodel = df[df[:, "model_type"] .== "aeaeclfdnn",["session_id","model_type", "modelid"]][2,:]
+df = df[(df[:, "model_type"] .== "aeaeclfdnn") .& (df[:, "ae_lr"] .== 1e-6),:]
 inpath = "./RES/$(bmodel[1])/$(bmodel[2])_$(bmodel[3])/FOLD001/model_000030000.bson"
 ## AE
 model = BSON.load(inpath)["model"]
@@ -78,6 +78,34 @@ boxplot!(ax, log2.(ae_clf[:, "dim_redux"]), ae_clf[:,"clf_tst_acc"], label = "te
 axislegend(ax,position =:rb)
 fig
 CairoMakie.save("figures/AE_CLF_by_bn_size_corr.pdf",fig)
+
+df = df[(df[:,"nepochs"] .== 100),:] # .& (df[:,"model_cv_complete"] ),:] # cleanup
+
+#### AE+AE+CLF 
+aeae_clf = df[df[:, "model_type"] .== "aeaeclfdnn",:]
+aeae_clf = aeae_clf[aeae_clf[:, "ae_lr"] .== 1e-6,:]
+aeae_clf = aeae_clf[aeae_clf[:,"clf_tst_acc"] .!== missing,:]
+aeae_clf = aeae_clf[aeae_clf[:,"dim_redux"] .!== missing,:]
+fig = Figure(resolution = (1024,812));
+aeae_clf[:,"dim_redux"]
+xticks = sort(sortperm(unique(aeae_clf[:,"dim_redux"])))
+ax = Axis(fig[1,1],
+    ylabel = "Accuracy of predictions", 
+    xlabel = "Auto-Encoder bottleneck width",
+    xticks = (xticks, ["$x" for x in sort(unique(aeae_clf[:, "dim_redux"]))] ));
+boxplot!(ax, xticks, aeae_clf[:,"clf_tr_acc"][sortperm(aeae_clf[:,"dim_redux"])], label = "train")
+boxplot!(ax, xticks, aeae_clf[:,"clf_tst_acc"][sortperm(aeae_clf[:,"dim_redux"])], label = "test")
+ax = Axis(fig[2,1],
+    ylabel = "Auto-Encoder \n Pearson Correlation", 
+    xlabel = "Auto-Encoder bottleneck width",
+    xticks = (xticks, ["$x" for x in sort(unique(aeae_clf[:, "dim_redux"]))] ));
+boxplot!(ax, xticks, aeae_clf[:,"ae_tr_cor"][sortperm(aeae_clf[:,"dim_redux"])], label = "train")
+boxplot!(ax, xticks, aeae_clf[:,"ae_tst_cor"][sortperm(aeae_clf[:,"dim_redux"])], label = "test")
+
+axislegend(ax,position =:rb)
+fig
+CairoMakie.save("figures/AE_AE_CLF_by_bn_size_acc.pdf",fig)
+
 
 ##### CPHDNN clinf noise
 cph = df[(df[:,"nepochs"] .>= 2000) .& (df[:,"model_cv_complete"] ) .& (df[:,"model_type"] .== "cphdnnclinf"),:]
