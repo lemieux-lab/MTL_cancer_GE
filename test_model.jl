@@ -43,6 +43,6 @@ function train_2(auto_encoder, X_data)
     end 
 end 
 
-train_2(auto_encoder, X_data)
+train(auto_encoder, X_data)
 
 [size(layer.weight) for layer in auto_encoder]
