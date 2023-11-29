@@ -1,15 +1,9 @@
 include("init.jl")
 
-X_data = gpu(rand(Float64,(1000,100)))
-
-
-function l2_penalty(model::Flux.Chain)
-    return sum([sum(abs2, layer.weight) for layer in model])
-end
-
-
-function l2_penalty_2(model::Flux.Chain)
-    return sum(p -> sum(abs2, p), Flux.params(model))
+X_data = gpu(rand(Float64,(100,1000)))
+ps = Flux.params(auto_encoder)
+function l2_penalty(ps)
+    return sum(p -> sum(abs2, p), ps)
 end 
 
 auto_encoder = gpu(Flux.Chain(
@@ -17,32 +11,23 @@ auto_encoder = gpu(Flux.Chain(
     Flux.Dense(47,2),
     Flux.Dense(2,47),
     Flux.Dense(47,100)));
-l2_penalty_2(auto_encoder)
+
 opt = Flux.ADAM(1e-3)
+
+ps[5]
+
+function lossf(model, X, ps)
+    return Flux.Losses.mse(vec(model(X)), vec(X)) + l2_penalty(ps)
+end
+
 function train(auto_encoder, X_data)
     for i in 1:100
-        out = auto_encoder(X_data')
-        ps = Flux.params(auto_encoder)
         gs = gradient(ps) do 
-            lossval = Flux.Losses.mse(out', X_data) + l2_penalty(auto_encoder)
+            lossval = lossf(auto_encoder, X_data, ps ) #+ l2_penalty_2(auto_encoder)
         end 
-        println("$i - $(Flux.Losses.mse(out', X_data) + l2_penalty(auto_encoder))")
-        Flux.update!(opt, ps, gs)
-    end 
-end 
-
-function train_2(auto_encoder, X_data)
-    for i in 1:100
-        out = auto_encoder(X_data')
-        ps = Flux.params(auto_encoder)
-        gs = gradient(ps) do 
-            lossval = Flux.Losses.mse(out', X_data) + l2_penalty_2(auto_encoder)
-        end 
-        println("$i - $(Flux.Losses.mse(out', X_data) + l2_penalty_2(auto_encoder))")
+        println("$i - $(lossf(auto_encoder, X_data, ps ))")#+ l2_penalty_2(auto_encoder))")
         Flux.update!(opt, ps, gs)
     end 
 end 
 
 train(auto_encoder, X_data)
-
-[size(layer.weight) for layer in auto_encoder]

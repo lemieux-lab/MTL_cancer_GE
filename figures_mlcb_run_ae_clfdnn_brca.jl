@@ -17,6 +17,13 @@ keep = clinf[:, "clinical_data_PAM50MRNA"] .!= "NA"
 y_lbls = clinf[keep, "clinical_data_PAM50MRNA"]
 y_data = label_binarizer(y_lbls)
 x_data = brca_prediction.data[keep,:]
+#### dump processed data
+outfile = h5open("Data/GDC_processed/TCGA_BRCA_fpkm_hv_norm_PAM50.h5", "w")
+outfile["data"] = x_data
+outfile["genes"] = brca_prediction.genes
+outfile["samples"] = brca_prediction.samples[keep]
+outfile["labels"] = Array{String}(y_lbls)
+close(outfile)
 ######### TCGA breast cancer
 ###### Proof of concept with Auto-Encoder classifier DNN. Provides directed dimensionality reductions
 ## 1 CLFDNN-AE 2D vs random x10 replicat accuracy BOXPLOT, train test samples by class bn layer 2D SCATTER. 
