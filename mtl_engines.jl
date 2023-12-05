@@ -489,6 +489,64 @@ function build(model_params; adaptative=true)
     return model 
 end
 
+function build_internal_cph(model_params)
+    cph_chain = gpu(Chain(Dense(model_params["dim_redux"] + model_params["nb_clinf"] , model_params["cph_hl_size"], leakyrelu),
+    #Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], leakyrelu),
+    Dense(model_params["cph_hl_size"] , 1, sigmoid, bias = false)))
+    opt = Flux.ADAM(model_params["cph_lr"])
+    return dnn(cph_chain, opt, cox_l2)
+end 
+
+function build_internal_dnn(encoder, model_params)
+    hls = Flux.Chain(Flux.Dense(model_params["dim_redux"], model_params["clfdnn_hl_size"], model_params["n.-lin"]))
+    clf_chain = gpu(Chain(encoder..., hls..., Dense( model_params["clfdnn_hl_size"], model_params["outsize"], identity)))
+    clf_opt = Flux.ADAM(model_params["clfdnn_lr"])
+    clf_lossf = crossentropy_l2
+    return dnn(clf_chain, clf_opt, clf_lossf)
+end 
+function build_ae_cph_dnn(model_params)
+    encoder = build_encoder(model_params)
+    decoder, output_layer = build_decoder(model_params)
+    dnn_chain = build_internal_dnn(encoder, model_params)
+    cph =  build_internal_cph( model_params)
+    AE = AE_model(Flux.Chain(encoder..., decoder...), encoder, decoder, output_layer, Flux.ADAM(model_params["ae_lr"]), mse_l2)   
+    aecphdnn = Dict(  "enc"=> enc, 
+                        "cph"=> cph,
+                        "dnn"=> dnn_chain,
+                        "ae" => AE)  
+    return aecphdnn
+end 
+
+function build_decoder(model_params)
+    enc, hl_sizes = build_internal_layers(model_params)
+    dec_hls = []
+    for i in 1:model_params["enc_nb_hl"]
+        in_size = i == 1 ? model_params["dim_redux"] : hl_sizes[i - 1]
+        out_size = hl_sizes[i]
+        push!(dec_hls, gpu(Flux.Dense(in_size, out_size, leakyrelu)))
+    end
+    output_layer = gpu(Flux.Dense(hl_sizes[end], model_params["insize"], leakyrelu))
+    return Flux.Chain(dec_hls..., output_layer), output_layer
+end 
+
+function build_encoder(model_params; adaptative=true)
+    enc_hls, hl_sizes = build_internal_layers(model_params,adaptative=adaptative)
+    redux_layer = gpu(Flux.Dense(reverse(hl_sizes)[end], model_params["dim_redux"],identity))
+    return Flux.Chain(enc_hls..., redux_layer)
+end 
+
+function build_internal_layers(model_params;adaptative=true)
+    c = compute_c(model_params["insize"], model_params["dim_redux"], model_params["enc_nb_hl"] )
+    hls = []
+    hl_sizes = [Int(floor(model_params["dim_redux"] * c ^ x)) for x in 1:model_params["enc_nb_hl"]]
+    hl_sizes = adaptative ?  hl_sizes  : Array{Int}(ones(10) .* model_params["ae_hl_size"])
+    for i in 1:model_params["enc_nb_hl"]
+        in_size = i == 1 ? model_params["insize"] : reverse(hl_sizes)[i - 1]
+        out_size = reverse(hl_sizes)[i]
+        push!(hls, gpu(Flux.Dense(in_size, out_size, leakyrelu)))
+    end 
+    return hls, hl_sizes
+end 
 
 ###### Train loop functions
 function train!(model::AE_model, fold;nepochs = 500, batchsize = 500, wd = 1e-6)
