@@ -363,7 +363,7 @@ function split_train_test(X::Matrix, X_c::Matrix,  Y_t::Vector,Y_e::Vector, case
     end
     return folds 
 end 
-function split_train_test(X::Matrix, Y::Matrix, case_ids::Vector; nfolds = 10)
+function split_train_test(X::Matrix, Y::Matrix, case_ids; nfolds = 10)
     folds = Array{Dict, 1}(undef, nfolds)
     nsamples = size(X)[1]
     fold_size = Int(floor(nsamples / nfolds))

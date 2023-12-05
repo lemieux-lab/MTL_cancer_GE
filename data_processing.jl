@@ -1,3 +1,28 @@
+# import leucegene data
+function leucegene_to_h5(outfilename)
+    tpm_data = CSV.read("Data/LEUCEGENE/lgn_pronostic_GE_CDS_TPM.csv", DataFrame)
+    CF = CSV.read("Data/LEUCEGENE/lgn_pronostic_CF", DataFrame)
+    outfile = h5open(outfilename,"w")
+    outfile["data"] = Matrix(tpm_data[:,2:end])
+    outfile["samples"] = CF[:,1]
+    outfile["genes"] = names(tpm_data)[2:end]
+    outfile["labels"] = Array{String}(CF[:,"WHO classification"])
+    outfile["survt"] = Array{Int}(CF[:,"Overall_Survival_Time_days"]) 
+    outfile["surve"] = Array{Int}(CF[:,"Overall_Survival_Status"])
+    close(outfile)
+    return outfilename
+end 
+function read_leucegene_h5(fname)
+    outfile = h5open(fname,"r")
+    tpm_data = log10.(outfile["data"][:,:] .+ 1)
+    samples = outfile["samples"][:]
+    genes = outfile["genes"][:] 
+    labels = outfile["labels"][:]
+    survt = outfile["survt"][:]
+    surve = outfile["surve"][:]
+    close(outfile)
+    return Dict(:tpm_data =>tpm_data, :samples=>samples,:genes=>genes, :labels=>labels, :survt=>survt, :surve=>surve )
+end
 function get_GDC_CLIN_data_init_paths()
 
     # loading data
