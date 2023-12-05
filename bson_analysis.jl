@@ -148,11 +148,24 @@ aeclfdnn2d[keep,["session_id", "modelid"]]
 CPHDNN_clinf_noexpr = df[df[:,"model_type"] .== "cphdnnclinf_noexpr",:]
 CPHDNN_clinf_noexpr = CPHDNN_clinf_noexpr[CPHDNN_clinf_noexpr[:,"nepochs"] .>= 20_000,:]
 CPHDNN_clinf_noexpr = CPHDNN_clinf_noexpr[CPHDNN_clinf_noexpr[:,"cph_lr"] .== 1e-6,:]
+unique(CPHDNN_clinf_noexpr[:,"nb_clinf"])
+CPHDNN_clinf_noexpr = CPHDNN_clinf_noexpr[CPHDNN_clinf_noexpr[:,"nb_clinf"] .== 8,:]
 CPHDNN_clinf_noexpr = CPHDNN_clinf_noexpr[CPHDNN_clinf_noexpr[:,"model_cv_complete"],:]
 CPHDNN_clinf_noexpr[:,"cphdnn_tst_c_ind"]
 CPHDNN_clinf_noexpr[:,"cphdnn_train_c_ind"]
 
-df
+fig = Figure(resolution = (512,512));
+ax = Axis(fig[1,1],
+    title = "Performance of CPHDNN on clinf on Leucegene Data ",
+    ylabel = "Concordance index ", 
+    xlabel = "Nb of clin. features")
+   # xticks = (unique(CPHDNN_clinf_noexpr[:, "nb_clinf"]), ["$x" for x in unique(CPHDNN_clinf_noexpr[:, "dim_redux"])] ));
+
+boxplot!(ax, CPHDNN_clinf_noexpr[:, "nb_clinf"] , Array{Float64}(CPHDNN_clinf_noexpr[:,"cphdnn_train_c_ind"]), width = 0.2, label = "train")
+boxplot!(ax, CPHDNN_clinf_noexpr[:, "nb_clinf"] , Array{Float64}(CPHDNN_clinf_noexpr[:,"cphdnn_tst_c_ind"]), width = 0.2,label = "test")
+axislegend(ax,position =:rt)
+fig
+CairoMakie.save("figures/CPHDNN_clinf_lgn.pdf",fig)
 ### CPHDNN 
 CPHDNN_clinf = df[df[:,"model_type"] .== "cphdnnclinf_noexpr",:]
 CPHDNN_clinf = CPHDNN_clinf[CPHDNN_clinf[:,"nepochs"] .>= 40_000,:]
@@ -162,3 +175,16 @@ CPHDNN_clinf = CPHDNN_clinf[CPHDNN_clinf[:,"cph_lr"] .== 1e-6,:]
 CPHDNN_clinf = CPHDNN_clinf[CPHDNN_clinf[:,"model_cv_complete"],:]
 CPHDNN_clinf[:,"cphdnn_tst_c_ind"]
 CPHDNN_clinf[:,"cphdnn_train_c_ind"]
+
+fig = Figure(resolution = (512,512));
+ax = Axis(fig[1,1],
+    title = "Performance of CPHDNN on clinf + PCA on Leucegene Data ",
+    ylabel = "Concordance index ", 
+    xlabel = "Nb of clin. features")
+   # xticks = (unique(CPHDNN_clinf_noexpr[:, "nb_clinf"]), ["$x" for x in unique(CPHDNN_clinf_noexpr[:, "dim_redux"])] ));
+
+boxplot!(ax, CPHDNN_clinf[:, "nb_clinf"] , Array{Float64}(CPHDNN_clinf[:,"cphdnn_train_c_ind"]), width = 0.2, label = "train")
+boxplot!(ax, CPHDNN_clinf[:, "nb_clinf"] , Array{Float64}(CPHDNN_clinf[:,"cphdnn_tst_c_ind"]), width = 0.2,label = "test")
+axislegend(ax,position =:rt)
+fig
+CairoMakie.save("figures/CPHDNN_clinf_lgn_PCA.pdf",fig)

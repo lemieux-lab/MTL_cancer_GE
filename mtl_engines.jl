@@ -213,8 +213,11 @@ end
 function cox_l2(mdl::dnn, X, Y_e, NE_frac, wd)
     return cox_nll_vec(mdl,X, Y_e, NE_frac) + wd * l2_penalty(mdl) 
 end
+function cox_l2(mdl::dnn,enc::Chain, X, X_c, Y_e, NE_frac, wd)
+    return cox_nll_vec(mdl,enc, X, X_c,  Y_e, NE_frac) + wd * (l2_penalty(mdl) + l2_penalty(enc)) 
+end
 function cox_l2(mdl::dnn, X, X_c, Y_e, NE_frac, wd)
-    return cox_nll_vec(mdl,X, X_c,  Y_e, NE_frac) + wd * l2_penalty(mdl) 
+    return cox_nll_vec(mdl, X_c,  Y_e, NE_frac) + wd * (l2_penalty(mdl) + l2_penalty(enc)) 
 end
 function cox_nll_vec(mdl::dnn, X_, Y_e_, NE_frac)
     outs = vec(mdl.model(X_))
@@ -238,6 +241,18 @@ function cox_nll_vec(mdl::dnn, X_, X_c_, Y_e_, NE_frac)
     neg_likelihood = - sum(censored_likelihood) * NE_frac
     return neg_likelihood
 end 
+function cox_nll_vec(mdl::dnn, enc::Chain, X_, X_c_, Y_e_, NE_frac)
+    outs = vec(mdl.model( vcat(enc(X_), X_c_)))
+    #outs = vec(mdl.cphdnn(mdl.encoder(X_)))
+    hazard_ratios = exp.(outs)
+    log_risk = log.(cumsum(hazard_ratios))
+    uncensored_likelihood = outs .- log_risk
+    censored_likelihood = uncensored_likelihood .* Y_e_'
+    #neg_likelihood = - sum(censored_likelihood) / sum(e .== 1)
+    neg_likelihood = - sum(censored_likelihood) * NE_frac
+    return neg_likelihood
+end 
+
 function cox_nll_vec(mdl::enccphdnn, x_, x_c_, Y_e_, NE_frac)
     outs = vec(mdl.cphdnn(vcat(mdl.encoder(x_), x_c_)))
     #outs = vec(mdl.cphdnn(mdl.encoder(X_)))
@@ -510,7 +525,7 @@ function build_ae_cph_dnn(model_params)
     dnn_chain = build_internal_dnn(encoder, model_params)
     cph =  build_internal_cph( model_params)
     AE = AE_model(Flux.Chain(encoder..., decoder...), encoder, decoder, output_layer, Flux.ADAM(model_params["ae_lr"]), mse_l2)   
-    aecphdnn = Dict(  "enc"=> enc, 
+    aecphdnn = Dict(  "enc"=> encoder, 
                         "cph"=> cph,
                         "dnn"=> dnn_chain,
                         "ae" => AE)  
@@ -835,6 +850,37 @@ function dump_model_cb(dump_freq, labels; export_type = "png")
             tst_lbls = labels[fold["test_ids"]]
             emb_fig_outpath = "RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))/model_$(zpad(iter)).$export_type"
             plot_embed(X_tr, X_tst, tr_lbls, tst_lbls,  params_dict, emb_fig_outpath;acc="clf_tr_acc")
+            #fig = Figure(resolution = (1024,1024));
+            #ax = Axis(fig[1,1];xlabel="Predicted", ylabel = "True Expr.", title = "Predicted vs True of $(brca_ae_params["ngenes"]) Genes Expression Profile TCGA BRCA with AE \n$(round(ae_cor_test;digits =3))", aspect = DataAspect())
+            #hexbin!(fig[1,1], outs, test_xs, cellsize=(0.02, 0.02), colormap=cgrad([:grey,:yellow], [0.00000001, 0.1]))
+            #CairoMakie.save("RES/$(params_dict["session_id"])/$(params_dict["modelid"])/FOLD$(zpad(fold["foldn"],pad=3))/1B_AE_BRCA_AE_SCATTER_DIM_REDUX.pdf", fig)
+
+        end 
+    end 
+end 
+
+function dump_aecphclf_model_cb(dump_freq, labels; export_type = "png")
+    return (model, tr_metrics, params_dict, iter::Int, fold) -> begin 
+        # check if end of epoch / start / end 
+        if iter % dump_freq == 0 || iter == 0 || iter == params_dict["nepochs"]
+            model_params_path = "$(params_dict["session_id"])/$(params_dict["model_type"])_$(params_dict["modelid"])"
+            # saves model BUGGED
+            # bson("RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad =3))/model_$(zpad(iter)).bson", Dict("model"=>to_cpu(model)))
+            # plot learning curve
+            lr_fig_outpath = "RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad=3))_lr.pdf"
+            plot_learning_curves_aecphclf(tr_metrics, params_dict, lr_fig_outpath)
+            # plot embedding
+            #X_proj = Matrix(cpu(model.ae2d.encoder(model.encoder(gpu(fold["train_x"]')))'))
+            #tr_labels = labels[fold["train_ids"]]
+            #tr_embed = DataFrame(:emb1=>X_proj[:,1], :emb2=>X_proj[:,2], :cancer_type => tr_labels)
+            #train = AlgebraOfGraphics.data(tr_embed) * mapping(:emb1,:emb2,color = :cancer_type,marker = :cancer_type) * visual(markersize =20)
+            #tr_acc,tst_acc = tr_metrics[end][2], tr_metrics[end][8]
+            #fig = draw(train, axis = (;aspect = AxisAspect(1), autolimitaspect = 1, width = 1024, height =1024,
+            #title="$(params_dict["model_type"]) on $(params_dict["dataset"]) data\naccuracy by DNN TRAIN: $(round(tr_acc* 100, digits=2))% TEST: $(round(tst_acc*100, digits=2))%"))
+
+            #emb_fig_outpath = "RES/$model_params_path/FOLD$(zpad(fold["foldn"],pad=3))/model_$(zpad(iter)).$export_type"
+            #CairoMakie.save(emb_fig_outpath, fig)
+            #plot_embed(X_tr, X_tst, tr_lbls, tst_lbls,  params_dict, emb_fig_outpath;acc="clf_tr_acc")
             #fig = Figure(resolution = (1024,1024));
             #ax = Axis(fig[1,1];xlabel="Predicted", ylabel = "True Expr.", title = "Predicted vs True of $(brca_ae_params["ngenes"]) Genes Expression Profile TCGA BRCA with AE \n$(round(ae_cor_test;digits =3))", aspect = DataAspect())
             #hexbin!(fig[1,1], outs, test_xs, cellsize=(0.02, 0.02), colormap=cgrad([:grey,:yellow], [0.00000001, 0.1]))
