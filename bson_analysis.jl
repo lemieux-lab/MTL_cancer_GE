@@ -143,3 +143,22 @@ CairoMakie.save("figures/AECPHDNN_clinf_by_bn_size.pdf",fig)
 aeclfdnn2d = df[(df[:,"nepochs"] .>= 3000) .& (df[:,"model_cv_complete"] ) .& (df[:,"model_type"] .== "aeclfdnn") .& (df[:,"dim_redux"] .== 2),:] # cleanup
 keep = findall(aeclfdnn2d[:,"clf_tst_acc"] .== maximum(aeclfdnn2d[:,"clf_tst_acc"]))
 aeclfdnn2d[keep,["session_id", "modelid"]]
+
+### CPHDNN 
+CPHDNN_clinf_noexpr = df[df[:,"model_type"] .== "cphdnnclinf_noexpr",:]
+CPHDNN_clinf_noexpr = CPHDNN_clinf_noexpr[CPHDNN_clinf_noexpr[:,"nepochs"] .>= 20_000,:]
+CPHDNN_clinf_noexpr = CPHDNN_clinf_noexpr[CPHDNN_clinf_noexpr[:,"cph_lr"] .== 1e-6,:]
+CPHDNN_clinf_noexpr = CPHDNN_clinf_noexpr[CPHDNN_clinf_noexpr[:,"model_cv_complete"],:]
+CPHDNN_clinf_noexpr[:,"cphdnn_tst_c_ind"]
+CPHDNN_clinf_noexpr[:,"cphdnn_train_c_ind"]
+
+df
+### CPHDNN 
+CPHDNN_clinf = df[df[:,"model_type"] .== "cphdnnclinf_noexpr",:]
+CPHDNN_clinf = CPHDNN_clinf[CPHDNN_clinf[:,"nepochs"] .>= 40_000,:]
+CPHDNN_clinf[:,"insize"]
+CPHDNN_clinf = CPHDNN_clinf[CPHDNN_clinf[:,"insize"] .== 38,:]
+CPHDNN_clinf = CPHDNN_clinf[CPHDNN_clinf[:,"cph_lr"] .== 1e-6,:]
+CPHDNN_clinf = CPHDNN_clinf[CPHDNN_clinf[:,"model_cv_complete"],:]
+CPHDNN_clinf[:,"cphdnn_tst_c_ind"]
+CPHDNN_clinf[:,"cphdnn_train_c_ind"]

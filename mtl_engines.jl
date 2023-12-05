@@ -298,7 +298,7 @@ function build(model_params; adaptative=true)
         Dense(model_params["cph_hl_size"] , model_params["cph_hl_size"], leakyrelu),
         Dense(model_params["cph_hl_size"] , 1, identity, bias = false)))
         opt = Flux.ADAM(model_params["cph_lr"])
-        model = dnn(chain, opt, cox_l2)svd
+        model = dnn(chain, opt, cox_l2)
 
 
     elseif model_params["model_type"] == "cphdnn"
